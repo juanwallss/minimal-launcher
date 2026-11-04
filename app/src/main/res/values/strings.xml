@@ -61,4 +61,18 @@
     <string name="s_large">large</string>
     <string name="s_format">time format</string>
     <string name="s_done">done</string>
+    <string name="g_title">gestures</string>
+    <string name="g_double">double tap</string>
+    <string name="g_up">swipe up</string>
+    <string name="g_down">swipe down</string>
+    <string name="g_left">swipe left</string>
+    <string name="g_right">swipe right</string>
+    <string name="g_none">nothing</string>
+    <string name="g_lock">lock</string>
+    <string name="g_notifications">notifications</string>
+    <string name="g_search">search</string>
+    <string name="g_camera">camera</string>
+    <string name="g_torch">flashlight</string>
+    <string name="g_app">app…</string>
+    <string name="cancel">cancel</string>
 </resources>

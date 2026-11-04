@@ -50,6 +50,10 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
+import android.provider.MediaStore
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -108,6 +112,7 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -144,7 +149,12 @@ data class App(val label: String, val pkg: String, val activity: String) {
 // Follows the phone's dark mode: warm off-white on near-black, or the inverse by day
 internal val Bg @Composable get() = if (isSystemInDarkTheme()) Color(0xFF0A0A0A) else Color(0xFFF4F2EE)
 internal val Fg @Composable get() = if (isSystemInDarkTheme()) Color(0xFFE8E6E1) else Color(0xFF1C1B1A)
-internal val Dim @Composable get() = if (isSystemInDarkTheme()) Color(0xFF6B6965) else Color(0xFF8E8B86)
+internal val Dim @Composable get() = when {
+    Look.background == Look.BG_NONE -> if (isSystemInDarkTheme()) Color(0xFF6B6965) else Color(0xFF8E8B86)
+    else -> if (isSystemInDarkTheme()) Color(0xFFB5B2AC) else Color(0xFF4F4C48) // stronger over images
+}
+/** Soft halo in the theme color behind text, only when there's an image behind it. */
+internal val TextShadow @Composable get() = if (Look.background == Look.BG_NONE) null else Shadow(Bg.copy(alpha = 0.75f), blurRadius = 10f)
 
 // Jost (variable font, OFL) — one file, instantiated at the weights we use
 @OptIn(ExperimentalTextApi::class)
@@ -153,9 +163,9 @@ internal val Thin = FontFamily(
         Font(R.font.jost, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
     }
 )
-internal val RowText @Composable get() = TextStyle(color = Fg, fontSize = Look.textSp.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
+internal val RowText @Composable get() = TextStyle(color = Fg, fontSize = Look.textSp.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp, shadow = TextShadow)
 internal val Grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
-internal val SmallText @Composable get() = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
+internal val SmallText @Composable get() = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp, shadow = TextShadow)
 
 @OptIn(ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
@@ -174,8 +184,8 @@ class MainActivity : ComponentActivity() {
         LauncherWidgetHost(applicationContext, onLongPress = { widgetMenu = "w:$it" }) { dx, dy ->
             when {
                 kotlin.math.abs(dx) > kotlin.math.abs(dy) -> pageBy(if (dx < 0) 1 else -1)
-                dy > 0 -> expandNotifications()
-                else -> query = ""
+                dy > 0 -> runGesture("down")
+                else -> runGesture("up")
             }
         }
     }
@@ -411,6 +421,7 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         Look.load(this)
+        runCatching { cameraManager.registerTorchCallback(torchCallback, null) }
         applyWindowBackground()
         if (Look.background == Look.BG_PHOTO) lifecycleScope.launch {
             bgImage = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(bgFile.path)?.asImageBitmap() }
@@ -439,6 +450,7 @@ class MainActivity : ComponentActivity() {
             if (settingsOpen) SettingsScreen(
                 onPickPhoto = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onBackgroundChanged = ::applyWindowBackground,
+                apps = apps,
                 onClose = { settingsOpen = false },
             ) else
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -499,18 +511,54 @@ class MainActivity : ComponentActivity() {
     }
 
     // Clean home view: swipe down → notifications, swipe up → search, double tap → lock
+    // Each gesture runs whatever action is chosen for it in settings (Look.gestures)
     private suspend fun PointerInputScope.homeGestures() = coroutineScope {
-        launch { detectTapGestures(onDoubleTap = { lockScreen() }) }
+        val threshold = 80.dp.toPx()
+        launch { detectTapGestures(onDoubleTap = { runGesture("double") }) }
+        launch {
+            var dragged = 0f
+            var fired = false
+            detectHorizontalDragGestures(onDragStart = { dragged = 0f; fired = false }) { change, dx ->
+                dragged += dx
+                if (fired) return@detectHorizontalDragGestures
+                if (dragged > threshold) { fired = true; change.consume(); runGesture("right") }
+                if (dragged < -threshold) { fired = true; change.consume(); runGesture("left") }
+            }
+        }
         var dragged = 0f
         var fired = false
         detectVerticalDragGestures(onDragStart = { dragged = 0f; fired = false }) { change, dy ->
             dragged += dy
             if (fired) return@detectVerticalDragGestures
-            val threshold = 80.dp.toPx()
-            if (dragged > threshold) { fired = true; change.consume(); expandNotifications() }
-            if (dragged < -threshold) { fired = true; change.consume(); query = "" }
+            if (dragged > threshold) { fired = true; change.consume(); runGesture("down") }
+            if (dragged < -threshold) { fired = true; change.consume(); runGesture("up") }
         }
     }
+
+    private fun runGesture(gesture: String) {
+        val action = Look.gestures[gesture] ?: return
+        when {
+            action == "lock" -> lockScreen()
+            action == "notifications" -> expandNotifications()
+            action == "search" -> query = ""
+            action == "camera" -> safeStart(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
+            action == "torch" -> toggleTorch()
+            action.startsWith("app:") -> action.removePrefix("app:").split("/").let { (pkg, cls) ->
+                safeStart(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClassName(pkg, cls))
+            }
+        }
+    }
+
+    // Flashlight: CameraManager needs no permission for the torch; the callback tracks its real state
+    private val cameraManager by lazy { getSystemService(CameraManager::class.java) }
+    private val torchId by lazy {
+        runCatching { cameraManager.cameraIdList.firstOrNull { cameraManager.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true } }.getOrNull()
+    }
+    private var torchOn = false
+    private val torchCallback = object : CameraManager.TorchCallback() {
+        override fun onTorchModeChanged(cameraId: String, enabled: Boolean) { if (cameraId == torchId) torchOn = enabled }
+    }
+    private fun toggleTorch() { torchId?.let { runCatching { cameraManager.setTorchMode(it, !torchOn) } } }
 
     @Composable
     private fun SearchField(q: String, onGo: () -> Unit) {
@@ -681,7 +729,7 @@ class MainActivity : ComponentActivity() {
                         interactionSource = null, indication = null,
                         onLongClick = { settingsOpen = true },
                     ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
-                    style = TextStyle(color = Fg, fontSize = Look.clockSp.sp, fontFamily = Thin, fontWeight = FontWeight.Thin),
+                    style = TextStyle(color = Fg, fontSize = Look.clockSp.sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
                 )
                 if (!Look.clock24) BasicText(
                     now.format(DateTimeFormatter.ofPattern("a")).lowercase(),
@@ -832,7 +880,7 @@ private fun LetterBar(letters: List<String>, selected: String?, onSelect: (Strin
                 BasicText(
                     l.lowercase(),
                     style = TextStyle(
-                        color = if (on) Fg else Dim, fontFamily = Thin,
+                        color = if (on) Fg else Dim, fontFamily = Thin, shadow = TextShadow,
                         fontSize = if (on) 20.sp else 13.sp,
                         fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
                     ),

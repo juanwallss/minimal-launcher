@@ -19,6 +19,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -38,6 +43,10 @@ internal object Look {
     var textSize by mutableIntStateOf(1)
     var clock24 by mutableStateOf(true)
 
+    /** gesture → action: none · lock · notifications · search · camera · torch · app:<pkg>/<activity> */
+    val GESTURE_DEFAULTS = linkedMapOf("double" to "lock", "up" to "search", "down" to "notifications", "left" to "none", "right" to "none")
+    val gestures = mutableStateMapOf<String, String>()
+
     val clockSp get() = listOf(64f, 88f, 112f)[clockSize]
     val textSp get() = listOf(20f, 24f, 28f)[textSize]
     fun timePattern() = if (clock24) "HH:mm" else "h:mm a"
@@ -52,11 +61,15 @@ internal object Look {
         clockSize = p.getInt("clockSize", 1)
         textSize = p.getInt("textSize", 1)
         clock24 = p.getBoolean("clock24", DateFormat.is24HourFormat(ctx)) // default follows the phone
+        GESTURE_DEFAULTS.forEach { (g, default) -> gestures[g] = p.getString("g_$g", default)!! }
     }
 
     fun save() {
-        prefs?.edit()?.putString("bg", background)?.putInt("bgDim", dim)?.putBoolean("bgGray", gray)
-            ?.putInt("clockSize", clockSize)?.putInt("textSize", textSize)?.putBoolean("clock24", clock24)?.apply()
+        val e = prefs?.edit() ?: return
+        e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
+            .putInt("clockSize", clockSize).putInt("textSize", textSize).putBoolean("clock24", clock24)
+        gestures.forEach { (g, action) -> e.putString("g_$g", action) }
+        e.apply()
     }
 }
 
@@ -82,8 +95,13 @@ private fun Choice(label: String, selected: Boolean, onClick: () -> Unit) = Basi
 
 /** Full-screen settings, opened by long-pressing the time. */
 @Composable
-fun SettingsScreen(onPickPhoto: () -> Unit, onBackgroundChanged: () -> Unit, onClose: () -> Unit) {
+fun SettingsScreen(onPickPhoto: () -> Unit, onBackgroundChanged: () -> Unit, apps: List<App>, onClose: () -> Unit) {
     fun set(change: () -> Unit) { change(); Look.save() }
+    var pickingAppFor by remember { mutableStateOf<String?>(null) }
+    pickingAppFor?.let { g ->
+        AppPicker(apps, onPick = { app -> set { Look.gestures[g] = "app:${app.id}" }; pickingAppFor = null }, onCancel = { pickingAppFor = null })
+        return
+    }
     val sizes = listOf(R.string.s_small, R.string.s_medium, R.string.s_large).map { stringResource(it) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 36.dp, end = 24.dp, top = 64.dp, bottom = 48.dp)) {
@@ -112,10 +130,50 @@ fun SettingsScreen(onPickPhoto: () -> Unit, onBackgroundChanged: () -> Unit, onC
             Choice("24 h", Look.clock24) { set { Look.clock24 = true } }
             Choice("12 h", !Look.clock24) { set { Look.clock24 = false } }
         }
+        // Gestures on the empty home screen
+        val actions = listOf(
+            "none" to R.string.g_none, "lock" to R.string.g_lock, "notifications" to R.string.g_notifications,
+            "search" to R.string.g_search, "camera" to R.string.g_camera, "torch" to R.string.g_torch,
+        )
+        val gestureNames = mapOf(
+            "double" to R.string.g_double, "up" to R.string.g_up, "down" to R.string.g_down,
+            "left" to R.string.g_left, "right" to R.string.g_right,
+        )
+        BasicText(stringResource(R.string.g_title), Modifier.padding(top = 44.dp), style = RowText.copy(fontSize = 26.sp, fontWeight = FontWeight.Thin))
+        Look.GESTURE_DEFAULTS.keys.forEach { g ->
+            val current = Look.gestures[g] ?: "none"
+            Section(stringResource(gestureNames.getValue(g))) {
+                actions.forEach { (action, label) -> Choice(stringResource(label), current == action) { set { Look.gestures[g] = action } } }
+                val chosenApp = current.takeIf { it.startsWith("app:") }?.removePrefix("app:")?.let { id -> apps.find { it.id == id } }
+                Choice(chosenApp?.label?.lowercase() ?: stringResource(R.string.g_app), chosenApp != null) { pickingAppFor = g }
+            }
+        }
+
         BasicText(
             stringResource(R.string.s_done),
             Modifier.padding(top = 44.dp).clickable(interactionSource = null, indication = null, onClick = onClose).padding(vertical = 6.dp),
             style = RowText.copy(fontSize = 19.sp),
         )
+    }
+}
+
+/** Pick the app a gesture opens. */
+@Composable
+private fun AppPicker(apps: List<App>, onPick: (App) -> Unit, onCancel: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(start = 36.dp, end = 24.dp, top = 64.dp)) {
+        BasicText(
+            stringResource(R.string.cancel),
+            Modifier.clickable(interactionSource = null, indication = null, onClick = onCancel).padding(bottom = 20.dp),
+            style = SmallText,
+        )
+        LazyColumn {
+            items(apps, key = { it.id }) { app ->
+                BasicText(
+                    app.label.lowercase().replaceFirstChar { it.uppercase() },
+                    Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null) { onPick(app) }.padding(vertical = 10.dp),
+                    style = RowText,
+                )
+            }
+        }
     }
 }

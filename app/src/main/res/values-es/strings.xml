@@ -61,4 +61,18 @@
     <string name="s_large">grande</string>
     <string name="s_format">formato de hora</string>
     <string name="s_done">listo</string>
+    <string name="g_title">gestos</string>
+    <string name="g_double">doble toque</string>
+    <string name="g_up">deslizar arriba</string>
+    <string name="g_down">deslizar abajo</string>
+    <string name="g_left">deslizar a la izquierda</string>
+    <string name="g_right">deslizar a la derecha</string>
+    <string name="g_none">nada</string>
+    <string name="g_lock">bloquear</string>
+    <string name="g_notifications">notificaciones</string>
+    <string name="g_search">buscar</string>
+    <string name="g_camera">cámara</string>
+    <string name="g_torch">linterna</string>
+    <string name="g_app">app…</string>
+    <string name="cancel">cancelar</string>
 </resources>
