@@ -16,6 +16,8 @@ import android.media.session.PlaybackState
 import android.media.MediaMetadata
 import android.os.Build
 import android.provider.CalendarContract
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -82,10 +84,10 @@ import java.util.Locale
 import kotlin.coroutines.resume
 
 /** Native widget pages are stored as "n:<kind>"; system widgets as "w:<appWidgetId>". */
-enum class NativeWidget(val key: String, val label: String) {
-    AGENDA("n:agenda", "agenda"),
-    MUSIC("n:music", "música"),
-    WEATHER("n:weather", "clima");
+enum class NativeWidget(val key: String, @StringRes val label: Int) {
+    AGENDA("n:agenda", R.string.widget_agenda),
+    MUSIC("n:music", R.string.widget_music),
+    WEATHER("n:weather", R.string.widget_weather);
 
     companion object { fun of(key: String) = entries.firstOrNull { it.key == key } }
 }
@@ -132,20 +134,21 @@ fun Context.upcomingEvents(hours: Int, limit: Int): List<CalEvent> {
 @Composable
 fun AgendaWidget(events: List<CalEvent>?, onAsk: () -> Unit, onOpen: () -> Unit) {
     Column(Modifier.fillMaxSize().tap(if (events == null) onAsk else onOpen)) {
-        Header("agenda")
+        Header(stringResource(R.string.widget_agenda))
         when {
-            events == null -> Hint("toca para ver tu calendario", onAsk)
-            events.isEmpty() -> BasicText("nada en las próximas 48 h", style = SmallText)
+            events == null -> Hint(stringResource(R.string.agenda_ask), onAsk)
+            events.isEmpty() -> BasicText(stringResource(R.string.agenda_empty), style = SmallText)
             else -> events.forEach { e ->
                 val today = LocalDate.now()
-                val day = when (e.begin.toLocalDate()) {
-                    today -> "hoy"
-                    today.plusDays(1) -> "mañana"
-                    else -> e.begin.format(DateTimeFormatter.ofPattern("EEE d", Locale("es"))).lowercase()
+                val starts = e.begin.toLocalDate()
+                val day = when {
+                    !starts.isAfter(today) -> stringResource(R.string.today) // includes multi-day events that started earlier
+                    starts == today.plusDays(1) -> stringResource(R.string.tomorrow)
+                    else -> e.begin.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).lowercase()
                 }
-                val time = if (e.allDay) "todo el día" else e.begin.format(DateTimeFormatter.ofPattern("HH:mm"))
+                val time = if (e.allDay) stringResource(R.string.all_day) else e.begin.format(DateTimeFormatter.ofPattern("HH:mm"))
                 Column(Modifier.padding(bottom = 10.dp)) {
-                    BasicText(e.title.ifBlank { "(sin título)" }, style = RowText.copy(fontSize = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    BasicText(e.title.ifBlank { stringResource(R.string.untitled) }, style = RowText.copy(fontSize = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     BasicText("$day · $time", style = SmallText.copy(fontSize = 13.sp))
                 }
             }
@@ -224,11 +227,11 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         when {
-            denied -> { Header("música"); Hint("activa el acceso a notificaciones", onNeedAccess) }
+            denied -> { Header(stringResource(R.string.widget_music)); Hint(stringResource(R.string.music_access), onNeedAccess) }
             c == null || title == null -> {
-                Header("música")
-                BasicText("nada sonando", style = SmallText)
-                prefs.getString("lastPlayer", null)?.let { pkg -> appLabel(pkg)?.let { Hint("abrir $it", onClick = { openApp(pkg) }) } }
+                Header(stringResource(R.string.widget_music))
+                BasicText(stringResource(R.string.music_nothing), style = SmallText)
+                prefs.getString("lastPlayer", null)?.let { pkg -> appLabel(pkg)?.let { Hint(stringResource(R.string.music_open, it), onClick = { openApp(pkg) }) } }
             }
             else -> {
                 // cover + title / artist · app
@@ -309,19 +312,20 @@ data class Weather(val temp: Int, val code: Int, val max: Int, val min: Int, val
     }
 }
 
-/** WMO weather codes (what Open-Meteo returns) → short Spanish words. */
+/** WMO weather codes (what Open-Meteo returns) → short word, translated via resources. */
+@StringRes
 fun weatherWord(code: Int) = when (code) {
-    0 -> "despejado"
-    1, 2 -> "algo nublado"
-    3 -> "nublado"
-    45, 48 -> "niebla"
-    in 51..57 -> "llovizna"
-    in 61..67 -> "lluvia"
-    in 71..77 -> "nieve"
-    in 80..82 -> "chubascos"
-    85, 86 -> "nevadas"
-    in 95..99 -> "tormenta"
-    else -> "—"
+    0 -> R.string.wx_clear
+    1, 2 -> R.string.wx_partly
+    3 -> R.string.wx_cloudy
+    45, 48 -> R.string.wx_fog
+    in 51..57 -> R.string.wx_drizzle
+    in 61..67 -> R.string.wx_rain
+    in 71..77 -> R.string.wx_snow
+    in 80..82 -> R.string.wx_showers
+    85, 86 -> R.string.wx_snow_showers
+    in 95..99 -> R.string.wx_storm
+    else -> R.string.wx_unknown
 }
 
 fun Context.hasLocation() = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -357,7 +361,7 @@ suspend fun Context.fetchWeather(): Weather? = withContext(Dispatchers.IO) {
         val current = json.getJSONObject("current")
         val daily = json.getJSONObject("daily")
         @Suppress("DEPRECATION")
-        val place = runCatching { Geocoder(this@fetchWeather, Locale("es")).getFromLocation(loc.latitude, loc.longitude, 1)?.firstOrNull()?.locality }.getOrNull()
+        val place = runCatching { Geocoder(this@fetchWeather, Locale.getDefault()).getFromLocation(loc.latitude, loc.longitude, 1)?.firstOrNull()?.locality }.getOrNull()
         Weather(
             temp = Math.round(current.getDouble("temperature_2m")).toInt(),
             code = current.getInt("weather_code"),
@@ -373,16 +377,16 @@ suspend fun Context.fetchWeather(): Weather? = withContext(Dispatchers.IO) {
 @Composable
 fun WeatherWidget(hasPermission: Boolean, weather: Weather?, loading: Boolean, onAsk: () -> Unit, onRefresh: () -> Unit) {
     Column(Modifier.fillMaxSize().tap(if (hasPermission) onRefresh else onAsk)) {
-        Header("clima")
+        Header(stringResource(R.string.widget_weather))
         when {
-            !hasPermission -> Hint("toca para usar tu ubicación aproximada", onAsk)
-            weather == null -> BasicText(if (loading) "cargando…" else "sin datos · toca para reintentar", style = SmallText)
+            !hasPermission -> Hint(stringResource(R.string.weather_ask), onAsk)
+            weather == null -> BasicText(stringResource(if (loading) R.string.loading else R.string.weather_failed), style = SmallText)
             else -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     BasicText("${weather.temp}°", style = RowText.copy(fontSize = 64.sp, fontWeight = FontWeight.Thin))
                     Column(Modifier.padding(start = 18.dp)) {
-                        BasicText(weatherWord(weather.code), style = RowText.copy(fontSize = 18.sp))
-                        BasicText("máx ${weather.max}° · mín ${weather.min}°", style = SmallText.copy(fontSize = 13.sp))
+                        BasicText(stringResource(weatherWord(weather.code)), style = RowText.copy(fontSize = 18.sp))
+                        BasicText(stringResource(R.string.weather_range, weather.max, weather.min), style = SmallText.copy(fontSize = 13.sp))
                     }
                 }
                 weather.place?.let { BasicText(it, Modifier.padding(top = 6.dp), style = SmallText.copy(fontSize = 13.sp)) }

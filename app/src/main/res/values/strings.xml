@@ -1,3 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Base language (English): used when the phone language has no translation below -->
 <resources>
-    <string name="lock_service_desc">Solo se usa para bloquear la pantalla cuando haces doble toque en el inicio de Minimal. No lee ni guarda nada.</string>
+    <string name="search">search</string>
+    <string name="fav_add">favorite</string>
+    <string name="fav_remove">unfavorite</string>
+    <string name="info">info</string>
+    <string name="hide">hide</string>
+    <string name="show">show</string>
+    <string name="uninstall">uninstall</string>
+    <string name="remove">remove</string>
+    <string name="add_widget">add widget</string>
+    <string name="widget_plus">+ widget</string>
+    <string name="other_app">other app…</string>
+    <string name="battery">%1$d %%</string>
+    <string name="battery_charging">charging %1$d %%</string>
+    <string name="today">today</string>
+    <string name="tomorrow">tomorrow</string>
+    <string name="all_day">all day</string>
+    <string name="untitled">(untitled)</string>
+    <string name="widget_agenda">agenda</string>
+    <string name="widget_music">music</string>
+    <string name="widget_weather">weather</string>
+    <string name="agenda_empty">nothing in the next 48 h</string>
+    <string name="agenda_ask">tap to see your calendar</string>
+    <string name="music_access">turn on notification access</string>
+    <string name="music_nothing">nothing playing</string>
+    <string name="music_open">open %1$s</string>
+    <string name="loading">loading…</string>
+    <string name="weather_failed">no data · tap to retry</string>
+    <string name="weather_ask">tap to use your approximate location</string>
+    <string name="weather_range">high %1$d° · low %2$d°</string>
+    <string name="wx_clear">clear</string>
+    <string name="wx_partly">partly cloudy</string>
+    <string name="wx_cloudy">cloudy</string>
+    <string name="wx_fog">fog</string>
+    <string name="wx_drizzle">drizzle</string>
+    <string name="wx_rain">rain</string>
+    <string name="wx_snow">snow</string>
+    <string name="wx_showers">showers</string>
+    <string name="wx_snow_showers">snow showers</string>
+    <string name="wx_storm">thunderstorm</string>
+    <string name="wx_unknown">—</string>
+    <string name="lock_toast">Turn on \"Minimal: double tap to lock\" in Accessibility</string>
+    <string name="lock_service_label">Minimal: double tap to lock</string>
+    <string name="dots_service_label">Minimal: notification dots</string>
+    <string name="lock_service_desc">Only used to lock the screen when you double tap the Minimal home screen. It doesn\'t read or store anything.</string>
 </resources>

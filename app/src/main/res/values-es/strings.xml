@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Spanish -->
+<resources>
+    <string name="search">buscar</string>
+    <string name="fav_add">favorito</string>
+    <string name="fav_remove">quitar favorito</string>
+    <string name="info">info</string>
+    <string name="hide">ocultar</string>
+    <string name="show">mostrar</string>
+    <string name="uninstall">desinstalar</string>
+    <string name="remove">quitar</string>
+    <string name="add_widget">añadir widget</string>
+    <string name="widget_plus">+ widget</string>
+    <string name="other_app">otra app…</string>
+    <string name="battery">%1$d %%</string>
+    <string name="battery_charging">cargando %1$d %%</string>
+    <string name="today">hoy</string>
+    <string name="tomorrow">mañana</string>
+    <string name="all_day">todo el día</string>
+    <string name="untitled">(sin título)</string>
+    <string name="widget_agenda">agenda</string>
+    <string name="widget_music">música</string>
+    <string name="widget_weather">clima</string>
+    <string name="agenda_empty">nada en las próximas 48 h</string>
+    <string name="agenda_ask">toca para ver tu calendario</string>
+    <string name="music_access">activa el acceso a notificaciones</string>
+    <string name="music_nothing">nada sonando</string>
+    <string name="music_open">abrir %1$s</string>
+    <string name="loading">cargando…</string>
+    <string name="weather_failed">sin datos · toca para reintentar</string>
+    <string name="weather_ask">toca para usar tu ubicación aproximada</string>
+    <string name="weather_range">máx %1$d° · mín %2$d°</string>
+    <string name="wx_clear">despejado</string>
+    <string name="wx_partly">algo nublado</string>
+    <string name="wx_cloudy">nublado</string>
+    <string name="wx_fog">niebla</string>
+    <string name="wx_drizzle">llovizna</string>
+    <string name="wx_rain">lluvia</string>
+    <string name="wx_snow">nieve</string>
+    <string name="wx_showers">chubascos</string>
+    <string name="wx_snow_showers">nevadas</string>
+    <string name="wx_storm">tormenta</string>
+    <string name="wx_unknown">—</string>
+    <string name="lock_toast">Activa \"Minimal: doble toque para bloquear\" en Accesibilidad</string>
+    <string name="lock_service_label">Minimal: doble toque para bloquear</string>
+    <string name="dots_service_label">Minimal: puntos de notificación</string>
+    <string name="lock_service_desc">Solo se usa para bloquear la pantalla cuando haces doble toque en el inicio de Minimal. No lee ni guarda nada.</string>
+</resources>

@@ -109,6 +109,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -263,8 +264,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun WidgetChooser() {
         Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-            NativeWidget.entries.filter { it.key !in pages }.forEach { w -> MenuItem(w.label) { addNative(w) } }
-            MenuItem("otra app…") { addSystemWidget() }
+            NativeWidget.entries.filter { it.key !in pages }.forEach { w -> MenuItem(stringResource(w.label)) { addNative(w) } }
+            MenuItem(stringResource(R.string.other_app)) { addSystemWidget() }
         }
     }
 
@@ -307,7 +308,7 @@ class MainActivity : ComponentActivity() {
     private fun WidgetArea() {
         if (pages.isEmpty()) {
             if (choosingWidget) WidgetChooser()
-            else BasicText("+ widget", Modifier.clickable(interactionSource = null, indication = null) { choosingWidget = true }.padding(vertical = 8.dp), style = SmallText)
+            else BasicText(stringResource(R.string.widget_plus), Modifier.clickable(interactionSource = null, indication = null) { choosingWidget = true }.padding(vertical = 8.dp), style = SmallText)
             return
         }
         val pager = rememberPagerState { pages.size }
@@ -328,8 +329,8 @@ class MainActivity : ComponentActivity() {
                 choosingWidget -> WidgetChooser()
                 widgetMenu != null -> Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                     val page = widgetMenu!!
-                    MenuItem("quitar") { removePage(page) }
-                    MenuItem("añadir widget") { choosingWidget = true }
+                    MenuItem(stringResource(R.string.remove)) { removePage(page) }
+                    MenuItem(stringResource(R.string.add_widget)) { choosingWidget = true }
                 }
             }
         }
@@ -447,7 +448,7 @@ class MainActivity : ComponentActivity() {
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
             keyboardActions = KeyboardActions(onGo = { onGo() }),
             decorationBox = { inner ->
-                Box { if (q.isEmpty()) BasicText("buscar", style = RowText.copy(color = Dim)); inner() }
+                Box { if (q.isEmpty()) BasicText(stringResource(R.string.search), style = RowText.copy(color = Dim)); inner() }
             },
         )
     }
@@ -480,16 +481,16 @@ class MainActivity : ComponentActivity() {
             }
             if (menuFor == app.id) {
                 Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                    MenuItem(if (app.id in favorites) "quitar favorito" else "favorito") {
+                    MenuItem(stringResource(if (app.id in favorites) R.string.fav_remove else R.string.fav_add)) {
                         toggleFavorite(app)
                     }
-                    MenuItem("info") {
+                    MenuItem(stringResource(R.string.info)) {
                         safeStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.pkg}")))
                     }
-                    MenuItem(if (app.id in hidden) "mostrar" else "ocultar") {
+                    MenuItem(stringResource(if (app.id in hidden) R.string.show else R.string.hide)) {
                         hidden = toggle(hidden, app, "hidden")
                     }
-                    MenuItem("desinstalar") {
+                    MenuItem(stringResource(R.string.uninstall)) {
                         safeStart(Intent(Intent.ACTION_DELETE, Uri.parse("package:${app.pkg}")))
                     }
                 }
@@ -616,11 +617,10 @@ class MainActivity : ComponentActivity() {
             val event = remember(now, resumes) { nextEvent() }
             val notified = NotificationDots.packages.value.size
             val status = buildString {
-                    if (charging) append("cargando ")
-                    append("$level %")
+                    append(stringResource(if (charging) R.string.battery_charging else R.string.battery, level))
                     event?.let { (title, at) ->
                         append("  ·  ")
-                        if (at.toLocalDate() != now.toLocalDate()) append("mañana ")
+                        if (at.toLocalDate() != now.toLocalDate()) append(stringResource(R.string.tomorrow)).append(' ')
                         append(at.format(DateTimeFormatter.ofPattern("HH:mm"))).append(' ').append(title)
                     }
                 }
@@ -686,7 +686,7 @@ class MainActivity : ComponentActivity() {
     private fun lockScreen() {
         val service = LockService.instance
         if (service == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            Toast.makeText(this, "Activa \"Minimal: doble toque para bloquear\" en Accesibilidad", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, R.string.lock_toast, Toast.LENGTH_LONG).show()
             safeStart(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         } else {
             service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
