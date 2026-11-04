@@ -1,6 +1,24 @@
 package com.jparedes.minimallauncher
 
+import android.Manifest
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.ContentUris
+import android.content.Context
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.os.BatteryManager
+import android.os.SystemClock
+import android.provider.CalendarContract
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import java.time.Instant
+import java.time.ZoneId
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Bitmap
@@ -95,9 +113,10 @@ data class App(val label: String, val pkg: String, val activity: String) {
 }
 
 // Palette / type — tweak here
-private val Bg = Color(0xFF0A0A0A)
-private val Fg = Color(0xFFE8E6E1)      // warm off-white
-private val Dim = Color(0xFF6B6965)     // muted gray for secondary text
+// Follows the phone's dark mode: warm off-white on near-black, or the inverse by day
+private val Bg @Composable get() = if (isSystemInDarkTheme()) Color(0xFF0A0A0A) else Color(0xFFF4F2EE)
+private val Fg @Composable get() = if (isSystemInDarkTheme()) Color(0xFFE8E6E1) else Color(0xFF1C1B1A)
+private val Dim @Composable get() = if (isSystemInDarkTheme()) Color(0xFF6B6965) else Color(0xFF8E8B86)
 
 // Jost (variable font, OFL) — one file, instantiated at the weights we use
 @OptIn(ExperimentalTextApi::class)
@@ -106,9 +125,9 @@ private val Thin = FontFamily(
         Font(R.font.jost, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
     }
 )
-private val RowText = TextStyle(color = Fg, fontSize = 24.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
+private val RowText @Composable get() = TextStyle(color = Fg, fontSize = 24.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
 private val Grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
-private val SmallText =TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
+private val SmallText @Composable get() = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
 
 @OptIn(ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
@@ -117,18 +136,27 @@ class MainActivity : ComponentActivity() {
     private var query by mutableStateOf<String?>(null)   // null = not searching
     private var menuFor by mutableStateOf<String?>(null) // app id whose long-press menu is open
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
-    private var favorites by mutableStateOf(emptySet<String>())
+    private var favorites by mutableStateOf(emptyList<String>()) // ordered app ids
+    private var resumes by mutableStateOf(0) // bumps on every resume so the status line refreshes
+    private val askCalendar = registerForActivityResult(ActivityResultContracts.RequestPermission()) { resumes++ }
     private var hidden by mutableStateOf(emptySet<String>())
 
     private fun toggle(set: Set<String>, app: App, pref: String) =
         (if (app.id in set) set - app.id else set + app.id).also { prefs.edit().putStringSet(pref, it).apply() }
 
+    private fun saveFavorites(list: List<String>) {
+        favorites = list
+        prefs.edit().putString("favOrder", list.joinToString("\n")).apply()
+    }
+
+    private fun toggleFavorite(app: App) = saveFavorites(if (app.id in favorites) favorites - app.id else favorites + app.id)
+
     private fun resetView() { letter = null; query = null; menuFor = null }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
         setContent {
@@ -160,7 +188,7 @@ class MainActivity : ComponentActivity() {
                         Modifier.padding(top = 16.dp, bottom = 32.dp).horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(28.dp),
                     ) {
-                        apps.filter { it.id in favorites }.forEach { FavoriteIcon(it) }
+                        favorites.mapNotNull { id -> apps.find { it.id == id } }.forEach { key(it.id) { FavoriteIcon(it) } }
                     }
                 }
                 LetterBar(visible.map { it.letter }.distinct(), letter) { letter = it; query = null; menuFor = null }
@@ -172,13 +200,16 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resetView() // pressing Home always lands on the clean clock view
-        favorites = prefs.getStringSet("favorites", emptySet())!!.toSet()
         hidden = prefs.getStringSet("hidden", emptySet())!!.toSet()
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         apps = packageManager.queryIntentActivities(intent, 0)
             .filter { it.activityInfo.packageName != packageName }
             .map { App(it.loadLabel(packageManager).toString(), it.activityInfo.packageName, it.activityInfo.name) }
             .sortedBy { it.label.lowercase() }
+        // Ordered list; first run migrates the old unordered set alphabetically
+        favorites = prefs.getString("favOrder", null)?.split("\n")?.filter { it.isNotEmpty() }
+            ?: prefs.getStringSet("favorites", emptySet())!!.sortedBy { id -> apps.find { it.id == id }?.label?.lowercase() ?: id }
+        resumes++
     }
 
     // Clean home view: swipe down → notifications, swipe up → search, double tap → lock
@@ -242,7 +273,7 @@ class MainActivity : ComponentActivity() {
             if (menuFor == app.id) {
                 Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                     MenuItem(if (app.id in favorites) "quitar favorito" else "favorito") {
-                        favorites = toggle(favorites, app, "favorites")
+                        toggleFavorite(app)
                     }
                     MenuItem("info") {
                         safeStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.pkg}")))
@@ -278,20 +309,50 @@ class MainActivity : ComponentActivity() {
         }.asImageBitmap()
     }
 
-    // Tap opens; long-press removes from favorites
+    // Tap opens. Long-press + drag sideways reorders; drag up and release removes it.
     @Composable
     private fun FavoriteIcon(app: App) {
         val haptics = LocalHapticFeedback.current
+        val density = LocalDensity.current
+        val slot = with(density) { 72.dp.toPx() }       // icon (44) + gap (28)
+        val dropAt = with(density) { -90.dp.toPx() }
+        var dx by remember { mutableFloatStateOf(0f) }
+        var dy by remember { mutableFloatStateOf(0f) }
+        var dragging by remember { mutableStateOf(false) }
+        var dragEndedAt by remember { mutableStateOf(0L) }
+        fun reset() { dragging = false; dx = 0f; dy = 0f; dragEndedAt = SystemClock.uptimeMillis() }
+        fun move(from: Int, to: Int) {
+            favorites = favorites.toMutableList().apply { add(to, removeAt(from)) }
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
                 iconOf(app), app.label,
-                Modifier.size(44.dp).combinedClickable(
-                    interactionSource = null, indication = null,
-                    onLongClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        favorites = toggle(favorites, app, "favorites")
+                Modifier.size(44.dp)
+                    .graphicsLayer {
+                        translationX = dx
+                        translationY = dy.coerceAtMost(0f)
+                        val scale = if (dragging) 1.15f else 1f
+                        scaleX = scale; scaleY = scale
+                        alpha = if (dy < dropAt) 0.25f else 1f
+                    }
+                    .pointerInput(app.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { dragging = true; dx = 0f; dy = 0f; haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                            onDragEnd = { if (dy < dropAt) toggleFavorite(app) else saveFavorites(favorites); reset() },
+                            onDragCancel = { saveFavorites(favorites); reset() },
+                        ) { change, d ->
+                            change.consume()
+                            dx += d.x; dy += d.y
+                            val i = favorites.indexOf(app.id)
+                            if (dx > slot / 2 && i in 0 until favorites.lastIndex) { move(i, i + 1); dx -= slot }
+                            else if (dx < -slot / 2 && i > 0) { move(i, i - 1); dx += slot }
+                        }
+                    }
+                    .clickable(interactionSource = null, indication = null) {
+                        // a long-press that ends in place must not also open the app
+                        if (!dragging && SystemClock.uptimeMillis() - dragEndedAt > 300) open(app)
                     },
-                ) { open(app) },
                 alpha = 0.85f,
                 colorFilter = Grayscale,
             )
@@ -325,7 +386,66 @@ class MainActivity : ComponentActivity() {
                 ) { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)) },
                 style = SmallText.copy(fontSize = 16.sp),
             )
+            // battery · next event (tap: grant calendar access, then opens the calendar)
+            val (level, charging) = battery()
+            val event = remember(now, resumes) { nextEvent() }
+            BasicText(
+                buildString {
+                    if (charging) append("cargando ")
+                    append("$level %")
+                    event?.let { (title, at) ->
+                        append("  ·  ")
+                        if (at.toLocalDate() != now.toLocalDate()) append("mañana ")
+                        append(at.format(DateTimeFormatter.ofPattern("HH:mm"))).append(' ').append(title)
+                    }
+                },
+                Modifier.padding(top = 6.dp).clickable(interactionSource = null, indication = null) {
+                    if (hasCalendar()) safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR))
+                    else askCalendar.launch(Manifest.permission.READ_CALENDAR)
+                },
+                style = SmallText.copy(fontSize = 14.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
+    }
+
+    @Composable
+    private fun battery(): Pair<Int, Boolean> {
+        var state by remember { mutableStateOf(0 to false) }
+        DisposableEffect(Unit) {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(c: Context, i: Intent) {
+                    val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) * 100 / i.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
+                    val status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                    state = level to (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL)
+                }
+            }
+            registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { receiver.onReceive(this@MainActivity, it) }
+            onDispose { unregisterReceiver(receiver) }
+        }
+        return state
+    }
+
+    private fun hasCalendar() = checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
+
+    // Next timed (non all-day) event starting within 24h, or null
+    // ponytail: queried on the main thread once a minute; one tiny indexed query
+    private fun nextEvent(): Pair<String, LocalDateTime>? {
+        if (!hasCalendar()) return null
+        val now = System.currentTimeMillis()
+        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
+            .also { ContentUris.appendId(it, now); ContentUris.appendId(it, now + 24 * 3_600_000L) }.build()
+        return runCatching {
+            contentResolver.query(
+                uri, arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN),
+                "${CalendarContract.Instances.ALL_DAY} = 0 AND ${CalendarContract.Instances.BEGIN} >= ?",
+                arrayOf(now.toString()), "${CalendarContract.Instances.BEGIN} ASC",
+            )?.use { c ->
+                if (!c.moveToFirst()) null
+                else (c.getString(0) ?: "").lowercase() to LocalDateTime.ofInstant(Instant.ofEpochMilli(c.getLong(1)), ZoneId.systemDefault())
+            }
+        }.getOrNull()
     }
 
     private fun lockScreen() {
