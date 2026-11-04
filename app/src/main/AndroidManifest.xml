@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <!-- Android 11+: needed to see other apps' launcher activities -->
     <queries>
@@ -20,7 +22,8 @@
             android:launchMode="singleTask"
             android:stateNotNeeded="true"
             android:clearTaskOnLaunch="true"
-            android:excludeFromRecents="true">
+            android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
@@ -28,5 +31,30 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Double-tap to lock: user enables it in Settings → Accessibility -->
+        <service
+            android:name=".LockService"
+            android:exported="true"
+            android:label="Minimal: doble toque para bloquear"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/lock_service" />
+        </service>
+
+        <!-- Notification dots: user enables it in Settings → Notification access -->
+        <service
+            android:name=".NotificationDots"
+            android:exported="true"
+            android:label="Minimal: puntos de notificación"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

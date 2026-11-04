@@ -1,31 +1,33 @@
 package com.jparedes.minimallauncher
 
+import android.accessibilityservice.AccessibilityService
+import android.content.ComponentName
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.AlarmClock
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import android.content.ComponentName
-import android.graphics.Bitmap
-import android.graphics.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -34,37 +36,55 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -77,6 +97,7 @@ data class App(val label: String, val pkg: String, val activity: String) {
 private val Bg = Color(0xFF0A0A0A)
 private val Fg = Color(0xFFE8E6E1)      // warm off-white
 private val Dim = Color(0xFF6B6965)     // muted gray for secondary text
+
 // Jost (variable font, OFL) — one file, instantiated at the weights we use
 @OptIn(ExperimentalTextApi::class)
 private val Thin = FontFamily(
@@ -84,17 +105,23 @@ private val Thin = FontFamily(
         Font(R.font.jost, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
     }
 )
+private val RowText = TextStyle(color = Fg, fontSize = 24.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
+private val SmallText = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
 
+@OptIn(ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
     private var apps by mutableStateOf(emptyList<App>())
     private var letter by mutableStateOf<String?>(null)
+    private var query by mutableStateOf<String?>(null)   // null = not searching
+    private var menuFor by mutableStateOf<String?>(null) // app id whose long-press menu is open
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
     private var favorites by mutableStateOf(emptySet<String>())
+    private var hidden by mutableStateOf(emptySet<String>())
 
-    private fun toggleFavorite(app: App) {
-        favorites = if (app.id in favorites) favorites - app.id else favorites + app.id
-        prefs.edit().putStringSet("favorites", favorites).apply()
-    }
+    private fun toggle(set: Set<String>, app: App, pref: String) =
+        (if (app.id in set) set - app.id else set + app.id).also { prefs.edit().putStringSet(pref, it).apply() }
+
+    private fun resetView() { letter = null; query = null; menuFor = null }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -103,19 +130,26 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         setContent {
-            BackHandler { letter = null } // back clears the filter; home screen never exits
-            val letters = apps.map { it.letter }.distinct()
+            BackHandler { if (menuFor != null) menuFor = null else resetView() } // home screen never exits
+            val visible = apps.filter { it.id !in hidden }
+            val q = query
+            val listed = when {
+                q != null -> if (q.isBlank()) emptyList() else apps.filter { it.label.contains(q.trim(), ignoreCase = true) }
+                else -> visible.filter { it.letter == letter }
+            }
+            val clean = letter == null && q == null
             Row(Modifier.fillMaxSize().background(Bg).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Column(
                     Modifier.weight(1f)
-                        .then(if (letter == null) Modifier.pointerInput(Unit) { swipeDownForNotifications() } else Modifier)
+                        .then(if (clean) Modifier.pointerInput(Unit) { homeGestures() } else Modifier)
                         .padding(start = 36.dp, top = 96.dp)
                 ) {
                     Clock()
+                    if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
                     Box(Modifier.weight(1f)) {
-                        key(letter) { // fresh scroll position per letter
+                        key(letter, q == null) { // fresh scroll position per letter / search
                             LazyColumn(Modifier.fadeEdges()) {
-                                items(apps.filter { it.letter == letter }, key = { it.id }) { AppRow(it) }
+                                items(listed, key = { it.id }) { AppRow(it) }
                             }
                         }
                     }
@@ -127,7 +161,7 @@ class MainActivity : ComponentActivity() {
                         apps.filter { it.id in favorites }.forEach { FavoriteIcon(it) }
                     }
                 }
-                LetterBar(letters, letter) { letter = it }
+                LetterBar(visible.map { it.letter }.distinct(), letter) { letter = it; query = null; menuFor = null }
             }
         }
     }
@@ -135,8 +169,9 @@ class MainActivity : ComponentActivity() {
     // ponytail: reloads on every resume instead of listening for package changes; cheap enough for a home screen
     override fun onResume() {
         super.onResume()
-        letter = null // pressing Home always lands on the clean clock view
+        resetView() // pressing Home always lands on the clean clock view
         favorites = prefs.getStringSet("favorites", emptySet())!!.toSet()
+        hidden = prefs.getStringSet("hidden", emptySet())!!.toSet()
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         apps = packageManager.queryIntentActivities(intent, 0)
             .filter { it.activityInfo.packageName != packageName }
@@ -144,28 +179,85 @@ class MainActivity : ComponentActivity() {
             .sortedBy { it.label.lowercase() }
     }
 
-    // Tap opens; long-press adds/removes from favorites
-    @OptIn(ExperimentalFoundationApi::class)
+    // Clean home view: swipe down → notifications, swipe up → search, double tap → lock
+    private suspend fun PointerInputScope.homeGestures() = coroutineScope {
+        launch { detectTapGestures(onDoubleTap = { lockScreen() }) }
+        var dragged = 0f
+        var fired = false
+        detectVerticalDragGestures(onDragStart = { dragged = 0f; fired = false }) { change, dy ->
+            dragged += dy
+            if (fired) return@detectVerticalDragGestures
+            val threshold = 80.dp.toPx()
+            if (dragged > threshold) { fired = true; change.consume(); expandNotifications() }
+            if (dragged < -threshold) { fired = true; change.consume(); query = "" }
+        }
+    }
+
     @Composable
-    private fun AppRow(app: App) {
-        val haptics = LocalHapticFeedback.current
-        BasicText(
-            app.label.lowercase(),
-            Modifier.fillMaxWidth()
-                .combinedClickable(
-                    interactionSource = null, indication = null,
-                    onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); toggleFavorite(app) },
-                ) { open(app) }
-                .padding(vertical = 11.dp),
-            style = TextStyle(
-                color = Fg, fontSize = 24.sp, fontFamily = Thin,
-                fontWeight = FontWeight.Light, letterSpacing = 0.5.sp,
-            ),
+    private fun SearchField(q: String, onGo: () -> Unit) {
+        val focus = remember { FocusRequester() }
+        LaunchedEffect(Unit) { focus.requestFocus() } // opens the keyboard
+        BasicTextField(
+            q, { query = it; menuFor = null },
+            Modifier.fillMaxWidth().padding(bottom = 16.dp).focusRequester(focus),
+            textStyle = RowText,
+            cursorBrush = SolidColor(Fg),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { onGo() }),
+            decorationBox = { inner ->
+                Box { if (q.isEmpty()) BasicText("buscar", style = RowText.copy(color = Dim)); inner() }
+            },
         )
     }
 
+    // Tap opens; long-press shows: favorito · info · ocultar · desinstalar
+    @Composable
+    private fun AppRow(app: App) {
+        val haptics = LocalHapticFeedback.current
+        val dot = app.pkg in NotificationDots.packages.value
+        Column {
+            BasicText(
+                app.label.lowercase() + if (dot) "  •" else "",
+                Modifier.fillMaxWidth()
+                    .combinedClickable(
+                        interactionSource = null, indication = null,
+                        onLongClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            menuFor = if (menuFor == app.id) null else app.id
+                        },
+                    ) { open(app) }
+                    .padding(vertical = 11.dp),
+                style = if (app.id in hidden) RowText.copy(color = Dim) else RowText,
+            )
+            if (menuFor == app.id) {
+                Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                    MenuItem(if (app.id in favorites) "quitar favorito" else "favorito") {
+                        favorites = toggle(favorites, app, "favorites")
+                    }
+                    MenuItem("info") {
+                        safeStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.pkg}")))
+                    }
+                    MenuItem(if (app.id in hidden) "mostrar" else "ocultar") {
+                        hidden = toggle(hidden, app, "hidden")
+                    }
+                    MenuItem("desinstalar") {
+                        safeStart(Intent(Intent.ACTION_DELETE, Uri.parse("package:${app.pkg}")))
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun MenuItem(label: String, onClick: () -> Unit) = BasicText(
+        label,
+        Modifier.clickable(interactionSource = null, indication = null) { menuFor = null; onClick() }
+            .padding(vertical = 6.dp),
+        style = SmallText,
+    )
+
     // Tap opens; long-press removes from favorites
-    @OptIn(ExperimentalFoundationApi::class)
     @Composable
     private fun FavoriteIcon(app: App) {
         val haptics = LocalHapticFeedback.current
@@ -176,23 +268,59 @@ class MainActivity : ComponentActivity() {
                 d.setBounds(0, 0, px, px); d.draw(Canvas(it))
             }.asImageBitmap()
         }
-        Image(
-            icon, app.label,
-            Modifier.size(44.dp).combinedClickable(
-                interactionSource = null, indication = null,
-                onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); toggleFavorite(app) },
-            ) { open(app) },
-            alpha = 0.85f,
-            colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Image(
+                icon, app.label,
+                Modifier.size(44.dp).combinedClickable(
+                    interactionSource = null, indication = null,
+                    onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        favorites = toggle(favorites, app, "favorites")
+                    },
+                ) { open(app) },
+                alpha = 0.85f,
+                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+            )
+            val dot = app.pkg in NotificationDots.packages.value
+            Box(Modifier.padding(top = 6.dp).size(4.dp).background(if (dot) Fg else Color.Transparent, CircleShape))
+        }
     }
 
-    // Swipe down on the clean home view → pull the notification shade
-    private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.swipeDownForNotifications() {
-        var dragged = 0f
-        detectVerticalDragGestures(onDragStart = { dragged = 0f }) { change, dy ->
-            dragged += dy
-            if (dragged > 80.dp.toPx()) { change.consume(); dragged = Float.NEGATIVE_INFINITY; expandNotifications() }
+    // Tap time → alarms, tap date → calendar, long-press date → notification-dot access
+    @Composable
+    private fun Clock() {
+        val now by produceState(LocalDateTime.now()) {
+            while (true) {
+                value = LocalDateTime.now()
+                delay(1000L * (60 - value.second)) // wake at the next minute
+            }
+        }
+        Column(Modifier.padding(bottom = 64.dp)) {
+            BasicText(
+                now.format(DateTimeFormatter.ofPattern("HH:mm")),
+                Modifier.clickable(interactionSource = null, indication = null) {
+                    safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS))
+                },
+                style = TextStyle(color = Fg, fontSize = 72.sp, fontFamily = Thin, fontWeight = FontWeight.Thin),
+            )
+            BasicText(
+                now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase(),
+                Modifier.combinedClickable(
+                    interactionSource = null, indication = null,
+                    onLongClick = { safeStart(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                ) { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)) },
+                style = SmallText.copy(fontSize = 16.sp),
+            )
+        }
+    }
+
+    private fun lockScreen() {
+        val service = LockService.instance
+        if (service == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            Toast.makeText(this, "Activa \"Minimal: doble toque para bloquear\" en Accesibilidad", Toast.LENGTH_LONG).show()
+            safeStart(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        } else {
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
         }
     }
 
@@ -203,13 +331,11 @@ class MainActivity : ComponentActivity() {
         Class.forName("android.app.StatusBarManager").getMethod("expandNotificationsPanel").invoke(sb)
     }
 
-    private fun open(app: App) {
-        startActivity(
-            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                .setClassName(app.pkg, app.activity)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
-    }
+    private fun safeStart(intent: Intent) = runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+
+    private fun open(app: App) = safeStart(
+        Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClassName(app.pkg, app.activity)
+    )
 }
 
 // Vertical A–Z strip: tap or drag your thumb along it to pick a letter
@@ -247,26 +373,6 @@ private fun LetterBar(letters: List<String>, selected: String?, onSelect: (Strin
                 ),
             )
         }
-    }
-}
-
-@Composable
-private fun Clock() {
-    val now by produceState(LocalDateTime.now()) {
-        while (true) {
-            value = LocalDateTime.now()
-            delay(1000L * (60 - value.second)) // wake at the next minute
-        }
-    }
-    Column(Modifier.padding(bottom = 64.dp)) {
-        BasicText(
-            now.format(DateTimeFormatter.ofPattern("HH:mm")),
-            style = TextStyle(color = Fg, fontSize = 72.sp, fontFamily = Thin, fontWeight = FontWeight.Thin),
-        )
-        BasicText(
-            now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase(),
-            style = TextStyle(color = Dim, fontSize = 16.sp, fontFamily = Thin, letterSpacing = 1.sp),
-        )
     }
 }
 

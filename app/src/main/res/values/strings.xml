@@ -1,0 +1,3 @@
+<resources>
+    <string name="lock_service_desc">Solo se usa para bloquear la pantalla cuando haces doble toque en el inicio de Minimal. No lee ni guarda nada.</string>
+</resources>
