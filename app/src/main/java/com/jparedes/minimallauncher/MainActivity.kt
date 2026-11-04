@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -106,7 +107,8 @@ private val Thin = FontFamily(
     }
 )
 private val RowText = TextStyle(color = Fg, fontSize = 24.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
-private val SmallText = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
+private val Grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+private val SmallText =TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
 
 @OptIn(ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
@@ -216,9 +218,9 @@ class MainActivity : ComponentActivity() {
     private fun AppRow(app: App) {
         val haptics = LocalHapticFeedback.current
         val dot = app.pkg in NotificationDots.packages.value
+        val isHidden = app.id in hidden
         Column {
-            BasicText(
-                app.label.lowercase() + if (dot) "  •" else "",
+            Row(
                 Modifier.fillMaxWidth()
                     .combinedClickable(
                         interactionSource = null, indication = null,
@@ -227,9 +229,16 @@ class MainActivity : ComponentActivity() {
                             menuFor = if (menuFor == app.id) null else app.id
                         },
                     ) { open(app) }
-                    .padding(vertical = 11.dp),
-                style = if (app.id in hidden) RowText.copy(color = Dim) else RowText,
-            )
+                    .padding(vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                Image(iconOf(app), null, Modifier.size(30.dp), alpha = if (isHidden) 0.4f else 0.8f, colorFilter = Grayscale)
+                BasicText(
+                    app.label.lowercase() + if (dot) "  •" else "",
+                    style = if (isHidden) RowText.copy(color = Dim) else RowText,
+                )
+            }
             if (menuFor == app.id) {
                 Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                     MenuItem(if (app.id in favorites) "quitar favorito" else "favorito") {
@@ -257,20 +266,25 @@ class MainActivity : ComponentActivity() {
         style = SmallText,
     )
 
+    // ponytail: plain map cache, never evicted; fine for a few hundred apps (stale icon after an app update until the launcher restarts)
+    private val iconCache = HashMap<String, ImageBitmap>()
+
+    private fun iconOf(app: App) = iconCache.getOrPut(app.id) {
+        val d = runCatching { packageManager.getActivityIcon(ComponentName(app.pkg, app.activity)) }
+            .getOrElse { packageManager.defaultActivityIcon }
+        val px = (48 * resources.displayMetrics.density).toInt()
+        Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888).also {
+            d.setBounds(0, 0, px, px); d.draw(Canvas(it))
+        }.asImageBitmap()
+    }
+
     // Tap opens; long-press removes from favorites
     @Composable
     private fun FavoriteIcon(app: App) {
         val haptics = LocalHapticFeedback.current
-        val icon = remember(app.id) {
-            val d = packageManager.getActivityIcon(ComponentName(app.pkg, app.activity))
-            val px = (48 * resources.displayMetrics.density).toInt()
-            Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888).also {
-                d.setBounds(0, 0, px, px); d.draw(Canvas(it))
-            }.asImageBitmap()
-        }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
-                icon, app.label,
+                iconOf(app), app.label,
                 Modifier.size(44.dp).combinedClickable(
                     interactionSource = null, indication = null,
                     onLongClick = {
@@ -279,7 +293,7 @@ class MainActivity : ComponentActivity() {
                     },
                 ) { open(app) },
                 alpha = 0.85f,
-                colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+                colorFilter = Grayscale,
             )
             val dot = app.pkg in NotificationDots.packages.value
             Box(Modifier.padding(top = 6.dp).size(4.dp).background(if (dot) Fg else Color.Transparent, CircleShape))
