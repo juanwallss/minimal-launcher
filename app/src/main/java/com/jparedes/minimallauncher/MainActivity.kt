@@ -18,6 +18,13 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.offset
+import android.appwidget.AppWidgetManager
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.core.view.WindowCompat
@@ -113,6 +120,10 @@ import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
+private const val REQ_PICK = 101
+private const val REQ_BIND = 102
+private const val REQ_CONFIG = 103
+
 data class App(val label: String, val pkg: String, val activity: String) {
     val id = "$pkg/$activity"
     val letter: String = label.firstOrNull()?.uppercaseChar()?.takeIf { it.isLetter() }?.toString() ?: "#"
@@ -145,6 +156,124 @@ class MainActivity : ComponentActivity() {
     private var favorites by mutableStateOf(emptyList<String>()) // ordered app ids
     private var resumes by mutableStateOf(0) // bumps on every resume so the status line refreshes
     private val askCalendar = registerForActivityResult(ActivityResultContracts.RequestPermission()) { resumes++ }
+
+    // --- Widgets: one paged area, ids kept in order in prefs ---
+    private val widgetManager by lazy { AppWidgetManager.getInstance(this) }
+    private val widgetHost by lazy {
+        LauncherWidgetHost(applicationContext, onLongPress = { widgetMenu = it }) { dx, dy ->
+            when {
+                kotlin.math.abs(dx) > kotlin.math.abs(dy) -> pageBy(if (dx < 0) 1 else -1)
+                dy > 0 -> expandNotifications()
+                else -> query = ""
+            }
+        }
+    }
+    private var widgets by mutableStateOf(emptyList<Int>())
+    private var widgetMenu by mutableStateOf<Int?>(null) // widget id whose long-press menu is open
+    private var pendingWidget = -1
+    private var pageBy: (Int) -> Unit = {} // set by the pager; widget views can't reach Compose state directly
+
+    private fun saveWidgets(list: List<Int>) {
+        widgets = list
+        prefs.edit().putString("widgets", list.joinToString(",")).apply()
+    }
+
+    // 1) system picker (it binds the widget itself) → 2) widget's config screen, if any → 3) keep it
+    private fun addWidget() {
+        pendingWidget = widgetHost.allocateAppWidgetId()
+        @Suppress("DEPRECATION")
+        startActivityForResult(
+            Intent(AppWidgetManager.ACTION_APPWIDGET_PICK)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingWidget)
+                // some pickers crash without these two
+                .putParcelableArrayListExtra(AppWidgetManager.EXTRA_CUSTOM_INFO, arrayListOf())
+                .putParcelableArrayListExtra(AppWidgetManager.EXTRA_CUSTOM_EXTRAS, arrayListOf()),
+            REQ_PICK,
+        )
+    }
+
+    private fun removeWidget(id: Int) {
+        widgetHost.deleteAppWidgetId(id)
+        saveWidgets(widgets - id)
+    }
+
+    @Deprecated("Activity result API doesn't cover AppWidgetHost.startAppWidgetConfigureActivityForResult")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
+        val id = pendingWidget
+        if (id == -1 || (requestCode != REQ_PICK && requestCode != REQ_BIND && requestCode != REQ_CONFIG)) return
+        fun cancel() { widgetHost.deleteAppWidgetId(id); pendingWidget = -1 }
+        fun keep() { saveWidgets(widgets + id); pendingWidget = -1 }
+        if (resultCode != RESULT_OK) return cancel()
+        when (requestCode) {
+            REQ_PICK, REQ_BIND -> {
+                val info = widgetManager.getAppWidgetInfo(id)
+                when {
+                    info == null -> {
+                        // Not bound yet: ask the user for permission to place it (only when we know the provider)
+                        val provider = data?.component
+                        if (requestCode == REQ_PICK && provider != null && !widgetManager.bindAppWidgetIdIfAllowed(id, provider)) {
+                            @Suppress("DEPRECATION")
+                            startActivityForResult(
+                                Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, provider),
+                                REQ_BIND,
+                            )
+                        } else if (widgetManager.getAppWidgetInfo(id) != null) keep() else cancel()
+                    }
+                    info.configure != null -> runCatching {
+                        widgetHost.startAppWidgetConfigureActivityForResult(this, id, 0, REQ_CONFIG, null)
+                    }.onFailure { keep() }
+                    else -> keep()
+                }
+            }
+            REQ_CONFIG -> keep()
+        }
+    }
+
+    override fun onStart() { super.onStart(); widgetHost.startListening() }
+    override fun onStop() { super.onStop(); runCatching { widgetHost.stopListening() } }
+
+    @Composable
+    private fun WidgetArea() {
+        if (widgets.isEmpty()) {
+            BasicText("+ widget", Modifier.clickable(interactionSource = null, indication = null) { addWidget() }.padding(vertical = 8.dp), style = SmallText)
+            return
+        }
+        val pager = rememberPagerState { widgets.size }
+        val scope = rememberCoroutineScope()
+        SideEffect {
+            pageBy = { d -> scope.launch { pager.animateScrollToPage((pager.currentPage + d).coerceIn(0, widgets.lastIndex)) } }
+        }
+        Column {
+            // ponytail: fixed page height; tall widgets get clipped — make it per-widget (info.minHeight) if that bites
+            HorizontalPager(pager, Modifier.fillMaxWidth().height(200.dp), pageSpacing = 24.dp, key = { widgets[it] }) { page ->
+                val id = widgets[page]
+                AndroidView(
+                    factory = { ctx ->
+                        widgetHost.createView(ctx, id, widgetManager.getAppWidgetInfo(id)).apply {
+                            val w = (resources.displayMetrics.widthPixels / resources.displayMetrics.density).toInt()
+                            @Suppress("DEPRECATION") updateAppWidgetSize(null, w, 200, w, 200)
+                        }
+                    },
+                    Modifier.fillMaxSize(),
+                )
+            }
+            // page dots
+            if (widgets.size > 1) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(widgets.size) { i ->
+                    Box(Modifier.size(5.dp).background(if (i == pager.currentPage) Fg else Dim, CircleShape))
+                }
+            }
+            widgetMenu?.let { id ->
+                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                    MenuItem("quitar") { removeWidget(id) }
+                    MenuItem("añadir widget") { addWidget() }
+                }
+            }
+        }
+    }
     private var hidden by mutableStateOf(emptySet<String>())
 
     private fun toggle(set: Set<String>, app: App, pref: String) =
@@ -157,7 +286,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleFavorite(app: App) = saveFavorites(if (app.id in favorites) favorites - app.id else favorites + app.id)
 
-    private fun resetView() { letter = null; query = null; menuFor = null }
+    private fun resetView() { letter = null; query = null; menuFor = null; widgetMenu = null }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -183,7 +312,8 @@ class MainActivity : ComponentActivity() {
                     Clock()
                     if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
                     Box(Modifier.weight(1f)) {
-                        key(letter, q == null) { // fresh scroll position per letter / search
+                        if (clean) WidgetArea()
+                        else key(letter, q == null) { // fresh scroll position per letter / search
                             LazyColumn(Modifier.fadeEdges()) {
                                 items(listed, key = { it.id }) { AppRow(it) }
                             }
@@ -220,6 +350,9 @@ class MainActivity : ComponentActivity() {
         // Ordered list; first run migrates the old unordered set alphabetically
         favorites = prefs.getString("favOrder", null)?.split("\n")?.filter { it.isNotEmpty() }
             ?: prefs.getStringSet("favorites", emptySet())!!.sortedBy { id -> apps.find { it.id == id }?.label?.lowercase() ?: id }
+        // Ordered widget ids; drop any whose app was uninstalled
+        widgets = prefs.getString("widgets", "")!!.split(",").mapNotNull { it.toIntOrNull() }
+            .filter { widgetManager.getAppWidgetInfo(it) != null }
         resumes++
     }
 
@@ -303,7 +436,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun MenuItem(label: String, onClick: () -> Unit) = BasicText(
         label,
-        Modifier.clickable(interactionSource = null, indication = null) { menuFor = null; onClick() }
+        Modifier.clickable(interactionSource = null, indication = null) { menuFor = null; widgetMenu = null; onClick() }
             .padding(vertical = 6.dp),
         style = SmallText,
     )
