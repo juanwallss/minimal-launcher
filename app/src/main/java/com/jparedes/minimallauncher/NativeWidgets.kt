@@ -16,6 +16,34 @@ import android.media.session.PlaybackState
 import android.media.MediaMetadata
 import android.os.Build
 import android.provider.CalendarContract
+import android.os.SystemClock
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -127,10 +155,31 @@ fun AgendaWidget(events: List<CalEvent>?, onAsk: () -> Unit, onOpen: () -> Unit)
 
 // ---------------------------------------------------------------- Music
 
-/** Reads media sessions through the notification-listener grant (NotificationDots) the user already gave. */
+private fun fmt(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return "%d:%02d".format(s / 60, s % 60) }
+
+/** Player-style icons drawn by hand so they match the thin type (no icon library). */
+@Composable
+private fun PlayerIcon(kind: String, color: Color, modifier: Modifier) = Canvas(modifier) {
+    val w = size.width; val h = size.height
+    fun triangle(left: Float, right: Float) = Path().apply { moveTo(left, h * 0.2f); lineTo(right, h * 0.5f); lineTo(left, h * 0.8f); close() }
+    when (kind) {
+        "play" -> drawPath(triangle(w * 0.32f, w * 0.78f), color)
+        "pause" -> { drawRect(color, Offset(w * 0.3f, h * 0.22f), Size(w * 0.12f, h * 0.56f)); drawRect(color, Offset(w * 0.58f, h * 0.22f), Size(w * 0.12f, h * 0.56f)) }
+        "next" -> { drawPath(triangle(w * 0.25f, w * 0.65f), color); drawRect(color, Offset(w * 0.67f, h * 0.2f), Size(w * 0.07f, h * 0.6f)) }
+        "prev" -> { drawPath(Path().apply { moveTo(w * 0.75f, h * 0.2f); lineTo(w * 0.35f, h * 0.5f); lineTo(w * 0.75f, h * 0.8f); close() }, color); drawRect(color, Offset(w * 0.26f, h * 0.2f), Size(w * 0.07f, h * 0.6f)) }
+    }
+}
+
+/**
+ * Media player page: grayscale cover, title (scrolls if long), artist · app, seekable progress bar with times,
+ * and previous / play-pause / next. Reads media sessions through the notification-listener grant (NotificationDots).
+ * With nothing playing it offers to open the last player used.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MusicWidget(onNeedAccess: () -> Unit) {
     val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE) }
     val sessions = remember { ctx.getSystemService(MediaSessionManager::class.java) }
     val listenerComponent = remember { ComponentName(ctx, NotificationDots::class.java) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
@@ -145,7 +194,7 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
         fun pick(list: List<MediaController>?) {
             controller?.unregisterCallback(callback)
             controller = list?.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: list?.firstOrNull()
-            controller?.registerCallback(callback)
+            controller?.let { it.registerCallback(callback); prefs.edit().putString("lastPlayer", it.packageName).apply() }
             tick++
         }
         val onChanged = MediaSessionManager.OnActiveSessionsChangedListener { pick(it) }
@@ -163,24 +212,85 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
 
     val c = controller
     val meta = remember(tick, c) { c?.metadata }
-    val playing = remember(tick, c) { c?.playbackState?.state == PlaybackState.STATE_PLAYING }
+    val state = remember(tick, c) { c?.playbackState }
+    val playing = state?.state == PlaybackState.STATE_PLAYING
     val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
+    fun appLabel(pkg: String) = runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(pkg, 0)).toString().lowercase() } }.getOrNull()
+    fun openApp(pkg: String) { ctx.packageManager.getLaunchIntentForPackage(pkg)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } }
+
+    // Position ticks once a second while playing (PlaybackState only reports the last known position)
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(playing, tick) { while (playing) { now = SystemClock.elapsedRealtime(); delay(1000) } }
 
     Column(Modifier.fillMaxSize()) {
-        Header("música")
         when {
-            denied -> Hint("activa el acceso a notificaciones", onNeedAccess)
-            c == null || title == null -> BasicText("nada sonando", style = SmallText)
+            denied -> { Header("música"); Hint("activa el acceso a notificaciones", onNeedAccess) }
+            c == null || title == null -> {
+                Header("música")
+                BasicText("nada sonando", style = SmallText)
+                prefs.getString("lastPlayer", null)?.let { pkg -> appLabel(pkg)?.let { Hint("abrir $it", onClick = { openApp(pkg) }) } }
+            }
             else -> {
-                val openApp = { ctx.packageManager.getLaunchIntentForPackage(c.packageName)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }; Unit }
-                BasicText(title.lowercase(), Modifier.tap(openApp), style = RowText.copy(fontSize = 22.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
-                if (artist != null) BasicText(artist.lowercase(), Modifier.padding(top = 2.dp), style = SmallText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                    val controls = c.transportControls
-                    BasicText("anterior", Modifier.tap { controls.skipToPrevious() }, style = SmallText.copy(color = Fg))
-                    BasicText(if (playing) "pausar" else "reproducir", Modifier.tap { if (playing) controls.pause() else controls.play() }, style = SmallText.copy(color = Fg))
-                    BasicText("siguiente", Modifier.tap { controls.skipToNext() }, style = SmallText.copy(color = Fg))
+                // cover + title / artist · app
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.tap { openApp(c.packageName) }) {
+                    val art = remember(meta) {
+                        (meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                            ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))?.asImageBitmap()
+                    }
+                    if (art != null) {
+                        Image(art, null, Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop, colorFilter = Grayscale)
+                        Spacer(Modifier.width(16.dp))
+                    }
+                    Column(Modifier.weight(1f)) {
+                        BasicText(title.lowercase(), Modifier.basicMarquee(), style = RowText.copy(fontSize = 21.sp), maxLines = 1)
+                        val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+                        BasicText(
+                            listOfNotNull(artist?.lowercase(), appLabel(c.packageName)).joinToString("  ·  "),
+                            Modifier.padding(top = 2.dp), style = SmallText.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                // progress: tap or drag the bar to seek (only if the player allows seeking)
+                val duration = meta.getLong(MediaMetadata.METADATA_KEY_DURATION)
+                if (duration > 0 && state != null) {
+                    val position = if (playing) state.position + ((now - state.lastPositionUpdateTime) * state.playbackSpeed).toLong() else state.position
+                    var dragFraction by remember { mutableStateOf<Float?>(null) }
+                    val fraction = dragFraction ?: (position.toFloat() / duration).coerceIn(0f, 1f)
+                    val canSeek = state.actions and PlaybackState.ACTION_SEEK_TO != 0L
+                    val fg = Fg; val dim = Dim
+                    Canvas(
+                        Modifier.fillMaxWidth().padding(top = 16.dp).height(18.dp)
+                            .then(if (!canSeek) Modifier else Modifier.pointerInput(duration) {
+                                detectTapGestures { c.transportControls.seekTo((it.x / size.width * duration).toLong()) }
+                            }.pointerInput(duration) {
+                                detectHorizontalDragGestures(
+                                    onDragEnd = { dragFraction?.let { c.transportControls.seekTo((it * duration).toLong()) }; dragFraction = null },
+                                    onDragCancel = { dragFraction = null },
+                                ) { change, _ -> change.consume(); dragFraction = (change.position.x / size.width).coerceIn(0f, 1f) }
+                            })
+                    ) {
+                        val y = size.height / 2
+                        drawLine(dim, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                        drawLine(fg, Offset(0f, y), Offset(size.width * fraction, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                        drawCircle(fg, radius = (if (dragFraction != null) 7 else 4).dp.toPx(), center = Offset(size.width * fraction, y))
+                    }
+                    Row(Modifier.fillMaxWidth()) {
+                        BasicText(fmt((fraction * duration).toLong()), style = SmallText.copy(fontSize = 12.sp))
+                        Spacer(Modifier.weight(1f))
+                        BasicText(fmt(duration), style = SmallText.copy(fontSize = 12.sp))
+                    }
+                }
+
+                // previous · play/pause · next — big round targets
+                val controls = c.transportControls
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    PlayerIcon("prev", Fg, Modifier.size(44.dp).clip(CircleShape).tap { controls.skipToPrevious() }.padding(10.dp))
+                    Box(
+                        Modifier.size(56.dp).clip(CircleShape).border(1.dp, Fg, CircleShape).tap { if (playing) controls.pause() else controls.play() },
+                        contentAlignment = Alignment.Center,
+                    ) { PlayerIcon(if (playing) "pause" else "play", Fg, Modifier.size(26.dp)) }
+                    PlayerIcon("next", Fg, Modifier.size(44.dp).clip(CircleShape).tap { controls.skipToNext() }.padding(10.dp))
                 }
             }
         }
