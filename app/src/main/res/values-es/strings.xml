@@ -75,4 +75,7 @@
     <string name="g_torch">linterna</string>
     <string name="g_app">app…</string>
     <string name="cancel">cancelar</string>
+    <string name="s_bar">barra de letras</string>
+    <string name="s_bar_side">lateral</string>
+    <string name="s_bar_bottom">abajo</string>
 </resources>

@@ -55,6 +55,7 @@ internal object Look {
     var clockSize by mutableIntStateOf(1)  // 0 small · 1 medium · 2 large
     var textSize by mutableIntStateOf(1)
     var clock24 by mutableStateOf(true)
+    var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
 
     /** gesture → action: none · lock · notifications · search · camera · torch · app:<pkg>/<activity> */
     val GESTURE_DEFAULTS = linkedMapOf("double" to "lock", "up" to "search", "down" to "notifications", "left" to "none", "right" to "none")
@@ -74,13 +75,14 @@ internal object Look {
         clockSize = p.getInt("clockSize", 1)
         textSize = p.getInt("textSize", 1)
         clock24 = p.getBoolean("clock24", DateFormat.is24HourFormat(ctx)) // default follows the phone
+        barBottom = p.getBoolean("barBottom", false)
         GESTURE_DEFAULTS.forEach { (g, default) -> gestures[g] = p.getString("g_$g", default)!! }
     }
 
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("textSize", textSize).putBoolean("clock24", clock24)
+            .putInt("clockSize", clockSize).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom)
         gestures.forEach { (g, action) -> e.putString("g_$g", action) }
         e.apply()
     }
@@ -139,6 +141,10 @@ fun SettingsScreen(onPickPhoto: () -> Unit, onBackgroundChanged: () -> Unit, app
         }
         Section(stringResource(R.string.s_text)) {
             sizes.forEachIndexed { i, label -> Choice(label, Look.textSize == i) { set { Look.textSize = i } } }
+        }
+        Section(stringResource(R.string.s_bar)) {
+            Choice(stringResource(R.string.s_bar_side), !Look.barBottom) { set { Look.barBottom = false } }
+            Choice(stringResource(R.string.s_bar_bottom), Look.barBottom) { set { Look.barBottom = true } }
         }
         Section(stringResource(R.string.s_format)) {
             Choice("24 h", Look.clock24) { set { Look.clock24 = true } }

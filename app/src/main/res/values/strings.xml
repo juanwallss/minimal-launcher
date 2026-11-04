@@ -75,4 +75,7 @@
     <string name="g_torch">flashlight</string>
     <string name="g_app">app…</string>
     <string name="cancel">cancel</string>
+    <string name="s_bar">letter bar</string>
+    <string name="s_bar_side">side</string>
+    <string name="s_bar_bottom">bottom</string>
 </resources>

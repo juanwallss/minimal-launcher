@@ -470,6 +470,9 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    if (Look.barBottom) Box(Modifier.padding(top = 12.dp, end = 20.dp)) {
+                        LetterBar(visible.map { it.letter }.distinct(), letter, horizontal = true) { letter = it; query = null; menuFor = null }
+                    }
                     // Favorites pinned at the bottom as grayscale icons, always visible
                     Row(
                         Modifier.padding(top = 16.dp, bottom = 32.dp).horizontalScroll(rememberScrollState()),
@@ -478,7 +481,7 @@ class MainActivity : ComponentActivity() {
                         favorites.mapNotNull { id -> apps.find { it.id == id } }.forEach { key(it.id) { FavoriteIcon(it) } }
                     }
                 }
-                LetterBar(visible.map { it.letter }.distinct(), letter) { letter = it; query = null; menuFor = null }
+                if (!Look.barBottom) LetterBar(visible.map { it.letter }.distinct(), letter) { letter = it; query = null; menuFor = null }
             }
             } // layers
         }
@@ -842,79 +845,93 @@ class MainActivity : ComponentActivity() {
     )
 }
 
-// Vertical A–Z strip: tap or drag your thumb along it to pick a letter.
-// While the finger is down, a bubble with the current letter floats beside it.
+// A–Z strip: vertical at the right edge, or horizontal above the favorites (settings → letter bar).
+// Tap or slide along it to pick a letter; while touching, a bubble with the letter follows the finger.
 @Composable
-private fun LetterBar(letters: List<String>, selected: String?, onSelect: (String) -> Unit) {
+private fun LetterBar(letters: List<String>, selected: String?, horizontal: Boolean = false, onSelect: (String) -> Unit) {
     val haptics = LocalHapticFeedback.current
-    var touchY by remember { mutableStateOf<Float?>(null) } // finger y inside the padded strip, null when not touching
-    val pad = 48.dp
-    // Sits at the edge, inside the back-gesture strip: the deferred selection below keeps back swipes from picking a letter
-    Box(Modifier.width(44.dp).fillMaxHeight()) {
-        Column(
-            Modifier.fillMaxSize().padding(vertical = pad)
-                .pointerInput(letters) {
-                    var last: String? = null
-                    fun pick(y: Float) {
-                        if (letters.isEmpty()) return
-                        touchY = y.coerceIn(0f, size.height.toFloat())
-                        val l = letters[(y / size.height * letters.size).toInt().coerceIn(letters.indices)]
-                        if (l != last) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); last = l; onSelect(l) }
+    var touch by remember { mutableStateOf<Float?>(null) } // finger position along the strip, null when not touching
+    val pad = if (horizontal) 0.dp else 48.dp
+    val strip = Modifier.pointerInput(letters, horizontal) {
+        var last: String? = null
+        fun length() = (if (horizontal) size.width else size.height).toFloat()
+        fun pick(pos: Float) {
+            if (letters.isEmpty()) return
+            touch = pos.coerceIn(0f, length())
+            val l = letters[(pos / length() * letters.size).toInt().coerceIn(letters.indices)]
+            if (l != last) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); last = l; onSelect(l) }
+        }
+        // Nothing is selected on touch-down (a back swipe from the edge, or a swipe across the strip, starts here too).
+        // Select while sliding along the strip, or on a tap (on release); movement across the strip selects nothing.
+        awaitEachGesture {
+            try {
+                last = null // first pick always selects (selected may be stale in this closure)
+                val down = awaitFirstDown()
+                var sliding = false
+                var across = false
+                val slop = viewConfiguration.touchSlop
+                do {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    val d = change.position - down.position
+                    val alongD = if (horizontal) d.x else d.y
+                    val acrossD = if (horizontal) d.y else d.x
+                    if (!sliding && !across && (abs(alongD) > slop || abs(acrossD) > slop)) {
+                        if (abs(alongD) >= abs(acrossD)) sliding = true else across = true
                     }
-                    // Nothing is selected on touch-down: a back swipe from the edge starts here too.
-                    // Select on a vertical drag (follows the finger) or on a tap (on release); a sideways swipe selects nothing.
-                    awaitEachGesture {
-                        try {
-                            last = null // first pick always selects (selected may be stale in this closure)
-                            val down = awaitFirstDown()
-                            var dragging = false
-                            var sideways = false
-                            val slop = viewConfiguration.touchSlop
-                            do {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                val d = change.position - down.position
-                                if (!dragging && !sideways && (abs(d.x) > slop || abs(d.y) > slop)) {
-                                    if (abs(d.y) >= abs(d.x)) dragging = true else sideways = true
-                                }
-                                if (dragging) { pick(change.position.y); change.consume() }
-                                else if (!change.pressed && !sideways && change.uptimeMillis - down.uptimeMillis < 500) pick(down.position.y) // tap
-                            } while (event.changes.any { it.pressed })
-                        } finally {
-                            touchY = null
-                        }
+                    if (sliding) { pick(if (horizontal) change.position.x else change.position.y); change.consume() }
+                    else if (!change.pressed && !across && change.uptimeMillis - down.uptimeMillis < 500) {
+                        pick(if (horizontal) down.position.x else down.position.y) // tap
                     }
-                },
-            verticalArrangement = Arrangement.SpaceEvenly,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            letters.forEach { l ->
-                val on = l == selected
-                BasicText(
-                    l.lowercase(),
-                    style = TextStyle(
-                        color = if (on) Fg else Dim, fontFamily = Thin, shadow = TextShadow,
-                        fontSize = if (on) 20.sp else 13.sp,
-                        fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
-                    ),
-                )
+                } while (event.changes.any { it.pressed })
+            } finally {
+                touch = null
             }
         }
-        // Bubble: inverted circle to the left of the strip, following the finger
-        val y = touchY
-        if (y != null && selected != null) {
+    }
+    val fg = Fg
+    val dim = Dim
+    val shadow = TextShadow
+    @Composable
+    fun Letter(l: String) {
+        val on = l == selected
+        BasicText(
+            l.lowercase(),
+            style = TextStyle(
+                color = if (on) fg else dim, fontFamily = Thin, shadow = shadow,
+                fontSize = if (on) 20.sp else 13.sp,
+                fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
+            ),
+        )
+    }
+    Box(if (horizontal) Modifier.fillMaxWidth().height(40.dp) else Modifier.width(44.dp).fillMaxHeight()) {
+        if (horizontal) {
+            // fixed-width cells so the strip doesn't shift when the selected letter grows
+            Row(Modifier.fillMaxSize().then(strip), verticalAlignment = Alignment.CenterVertically) {
+                letters.forEach { l -> Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Letter(l) } }
+            }
+        } else {
+            Column(
+                Modifier.fillMaxSize().padding(vertical = pad).then(strip),
+                verticalArrangement = Arrangement.SpaceEvenly,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) { letters.forEach { Letter(it) } }
+        }
+        // Bubble: inverted circle beside the strip (left of it, or above it), following the finger
+        val t = touch
+        if (t != null && selected != null) {
             val bubble = 60.dp
             Box(
                 Modifier
-                    .offset { IntOffset(-(bubble + 28.dp).roundToPx(), (y + pad.toPx() - bubble.toPx() / 2).toInt()) }
+                    .offset {
+                        if (horizontal) IntOffset((t - bubble.toPx() / 2).toInt(), -(bubble + 14.dp).roundToPx())
+                        else IntOffset(-(bubble + 28.dp).roundToPx(), (t + pad.toPx() - bubble.toPx() / 2).toInt())
+                    }
                     .size(bubble)
-                    .background(Fg, CircleShape),
+                    .background(fg, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText(
-                    selected.uppercase(),
-                    style = TextStyle(color = Bg, fontSize = 30.sp, fontFamily = Thin, fontWeight = FontWeight.Normal),
-                )
+                BasicText(selected.uppercase(), style = TextStyle(color = Bg, fontSize = 30.sp, fontFamily = Thin, fontWeight = FontWeight.Normal))
             }
         }
     }
