@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.offset
 import android.appwidget.AppWidgetManager
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -131,20 +132,20 @@ data class App(val label: String, val pkg: String, val activity: String) {
 
 // Palette / type — tweak here
 // Follows the phone's dark mode: warm off-white on near-black, or the inverse by day
-private val Bg @Composable get() = if (isSystemInDarkTheme()) Color(0xFF0A0A0A) else Color(0xFFF4F2EE)
-private val Fg @Composable get() = if (isSystemInDarkTheme()) Color(0xFFE8E6E1) else Color(0xFF1C1B1A)
-private val Dim @Composable get() = if (isSystemInDarkTheme()) Color(0xFF6B6965) else Color(0xFF8E8B86)
+internal val Bg @Composable get() = if (isSystemInDarkTheme()) Color(0xFF0A0A0A) else Color(0xFFF4F2EE)
+internal val Fg @Composable get() = if (isSystemInDarkTheme()) Color(0xFFE8E6E1) else Color(0xFF1C1B1A)
+internal val Dim @Composable get() = if (isSystemInDarkTheme()) Color(0xFF6B6965) else Color(0xFF8E8B86)
 
 // Jost (variable font, OFL) — one file, instantiated at the weights we use
 @OptIn(ExperimentalTextApi::class)
-private val Thin = FontFamily(
+internal val Thin = FontFamily(
     listOf(FontWeight.Thin, FontWeight.ExtraLight, FontWeight.Light, FontWeight.Normal).map {
         Font(R.font.jost, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
     }
 )
-private val RowText @Composable get() = TextStyle(color = Fg, fontSize = 24.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
+internal val RowText @Composable get() = TextStyle(color = Fg, fontSize = 24.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
 private val Grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
-private val SmallText @Composable get() = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
+internal val SmallText @Composable get() = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
 
 @OptIn(ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
@@ -157,10 +158,10 @@ class MainActivity : ComponentActivity() {
     private var resumes by mutableStateOf(0) // bumps on every resume so the status line refreshes
     private val askCalendar = registerForActivityResult(ActivityResultContracts.RequestPermission()) { resumes++ }
 
-    // --- Widgets: one paged area, ids kept in order in prefs ---
+    // --- Widget area: one paged space. Pages are "w:<appWidgetId>" (other apps) or "n:<kind>" (built-in, see NativeWidgets.kt)
     private val widgetManager by lazy { AppWidgetManager.getInstance(this) }
     private val widgetHost by lazy {
-        LauncherWidgetHost(applicationContext, onLongPress = { widgetMenu = it }) { dx, dy ->
+        LauncherWidgetHost(applicationContext, onLongPress = { widgetMenu = "w:$it" }) { dx, dy ->
             when {
                 kotlin.math.abs(dx) > kotlin.math.abs(dy) -> pageBy(if (dx < 0) 1 else -1)
                 dy > 0 -> expandNotifications()
@@ -168,18 +169,40 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    private var widgets by mutableStateOf(emptyList<Int>())
-    private var widgetMenu by mutableStateOf<Int?>(null) // widget id whose long-press menu is open
+    private var pages by mutableStateOf(emptyList<String>())
+    private var widgetMenu by mutableStateOf<String?>(null) // page whose long-press menu is open
+    private var choosingWidget by mutableStateOf(false)    // inline "which widget?" row is open
     private var pendingWidget = -1
     private var pageBy: (Int) -> Unit = {} // set by the pager; widget views can't reach Compose state directly
 
-    private fun saveWidgets(list: List<Int>) {
-        widgets = list
-        prefs.edit().putString("widgets", list.joinToString(",")).apply()
+    private var weather by mutableStateOf<Weather?>(null)
+    private var weatherLoading by mutableStateOf(false)
+    private val askLocation = registerForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) refreshWeather(force = true) }
+
+    private fun savePages(list: List<String>) {
+        pages = list
+        prefs.edit().putString("pages", list.joinToString(",")).apply()
     }
 
-    // 1) system picker (it binds the widget itself) → 2) widget's config screen, if any → 3) keep it
-    private fun addWidget() {
+    private fun addNative(w: NativeWidget) {
+        savePages(pages + w.key)
+        if (w == NativeWidget.WEATHER) refreshWeather(force = true)
+    }
+
+    // ponytail: refreshes at most every 30 min, only while the launcher is open — no background job
+    private fun refreshWeather(force: Boolean = false) {
+        if (NativeWidget.WEATHER.key !in pages || weatherLoading || !hasLocation()) return
+        val cached = weather ?: Weather.fromJson(prefs.getString("weather", null)).also { weather = it }
+        if (!force && cached != null && System.currentTimeMillis() - cached.at < 30 * 60_000L) return
+        weatherLoading = true
+        lifecycleScope.launch {
+            fetchWeather()?.let { weather = it; prefs.edit().putString("weather", it.toJson()).apply() }
+            weatherLoading = false
+        }
+    }
+
+    // Other apps' widgets: 1) system picker (it binds the widget itself) → 2) widget's config screen, if any → 3) keep it
+    private fun addSystemWidget() {
         pendingWidget = widgetHost.allocateAppWidgetId()
         @Suppress("DEPRECATION")
         startActivityForResult(
@@ -192,9 +215,9 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun removeWidget(id: Int) {
-        widgetHost.deleteAppWidgetId(id)
-        saveWidgets(widgets - id)
+    private fun removePage(page: String) {
+        if (page.startsWith("w:")) page.removePrefix("w:").toIntOrNull()?.let(widgetHost::deleteAppWidgetId)
+        savePages(pages - page)
     }
 
     @Deprecated("Activity result API doesn't cover AppWidgetHost.startAppWidgetConfigureActivityForResult")
@@ -203,7 +226,7 @@ class MainActivity : ComponentActivity() {
         val id = pendingWidget
         if (id == -1 || (requestCode != REQ_PICK && requestCode != REQ_BIND && requestCode != REQ_CONFIG)) return
         fun cancel() { widgetHost.deleteAppWidgetId(id); pendingWidget = -1 }
-        fun keep() { saveWidgets(widgets + id); pendingWidget = -1 }
+        fun keep() { savePages(pages + "w:$id"); pendingWidget = -1 }
         if (resultCode != RESULT_OK) return cancel()
         when (requestCode) {
             REQ_PICK, REQ_BIND -> {
@@ -235,21 +258,39 @@ class MainActivity : ComponentActivity() {
     override fun onStart() { super.onStart(); widgetHost.startListening() }
     override fun onStop() { super.onStop(); runCatching { widgetHost.stopListening() } }
 
+    /** "agenda · música · clima · otra app…" — built-ins not added yet, plus the system picker. */
     @Composable
-    private fun WidgetArea() {
-        if (widgets.isEmpty()) {
-            BasicText("+ widget", Modifier.clickable(interactionSource = null, indication = null) { addWidget() }.padding(vertical = 8.dp), style = SmallText)
-            return
+    private fun WidgetChooser() {
+        Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            NativeWidget.entries.filter { it.key !in pages }.forEach { w -> MenuItem(w.label) { addNative(w) } }
+            MenuItem("otra app…") { addSystemWidget() }
         }
-        val pager = rememberPagerState { widgets.size }
-        val scope = rememberCoroutineScope()
-        SideEffect {
-            pageBy = { d -> scope.launch { pager.animateScrollToPage((pager.currentPage + d).coerceIn(0, widgets.lastIndex)) } }
+    }
+
+    @Composable
+    private fun WidgetPage(page: String) {
+        val haptics = LocalHapticFeedback.current
+        val longPress = Modifier.pointerInput(page) {
+            detectTapGestures(onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); widgetMenu = page })
         }
-        Column {
-            // ponytail: fixed page height; tall widgets get clipped — make it per-widget (info.minHeight) if that bites
-            HorizontalPager(pager, Modifier.fillMaxWidth().height(200.dp), pageSpacing = 24.dp, key = { widgets[it] }) { page ->
-                val id = widgets[page]
+        val calendar = { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)); Unit }
+        when (NativeWidget.of(page)) {
+            NativeWidget.AGENDA -> Box(longPress) {
+                val events = remember(resumes) { if (hasCalendar()) upcomingEvents(48, 3) else null }
+                AgendaWidget(events, onAsk = { askCalendar.launch(Manifest.permission.READ_CALENDAR) }, onOpen = calendar)
+            }
+            NativeWidget.MUSIC -> Box(longPress) {
+                MusicWidget(onNeedAccess = { safeStart(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
+            }
+            NativeWidget.WEATHER -> Box(longPress) {
+                WeatherWidget(
+                    hasPermission = hasLocation(), weather = weather, loading = weatherLoading,
+                    onAsk = { askLocation.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
+                    onRefresh = { refreshWeather(force = true) },
+                )
+            }
+            null -> {
+                val id = page.removePrefix("w:").toInt()
                 AndroidView(
                     factory = { ctx ->
                         widgetHost.createView(ctx, id, widgetManager.getAppWidgetInfo(id)).apply {
@@ -260,20 +301,41 @@ class MainActivity : ComponentActivity() {
                     Modifier.fillMaxSize(),
                 )
             }
+        }
+    }
+
+    @Composable
+    private fun WidgetArea() {
+        if (pages.isEmpty()) {
+            if (choosingWidget) WidgetChooser()
+            else BasicText("+ widget", Modifier.clickable(interactionSource = null, indication = null) { choosingWidget = true }.padding(vertical = 8.dp), style = SmallText)
+            return
+        }
+        val pager = rememberPagerState { pages.size }
+        val scope = rememberCoroutineScope()
+        SideEffect {
+            pageBy = { d -> scope.launch { pager.animateScrollToPage((pager.currentPage + d).coerceIn(0, pages.lastIndex)) } }
+        }
+        Column {
+            // ponytail: fixed page height; tall widgets get clipped — make it per-widget (info.minHeight) if that bites
+            HorizontalPager(pager, Modifier.fillMaxWidth().height(200.dp), pageSpacing = 24.dp, key = { pages[it] }) { WidgetPage(pages[it]) }
             // page dots
-            if (widgets.size > 1) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                repeat(widgets.size) { i ->
+            if (pages.size > 1) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(pages.size) { i ->
                     Box(Modifier.size(5.dp).background(if (i == pager.currentPage) Fg else Dim, CircleShape))
                 }
             }
-            widgetMenu?.let { id ->
-                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                    MenuItem("quitar") { removeWidget(id) }
-                    MenuItem("añadir widget") { addWidget() }
+            when {
+                choosingWidget -> WidgetChooser()
+                widgetMenu != null -> Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                    val page = widgetMenu!!
+                    MenuItem("quitar") { removePage(page) }
+                    MenuItem("añadir widget") { choosingWidget = true }
                 }
             }
         }
     }
+
     private var hidden by mutableStateOf(emptySet<String>())
 
     private fun toggle(set: Set<String>, app: App, pref: String) =
@@ -286,7 +348,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleFavorite(app: App) = saveFavorites(if (app.id in favorites) favorites - app.id else favorites + app.id)
 
-    private fun resetView() { letter = null; query = null; menuFor = null; widgetMenu = null }
+    private fun resetView() { letter = null; query = null; menuFor = null; widgetMenu = null; choosingWidget = false }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -350,9 +412,12 @@ class MainActivity : ComponentActivity() {
         // Ordered list; first run migrates the old unordered set alphabetically
         favorites = prefs.getString("favOrder", null)?.split("\n")?.filter { it.isNotEmpty() }
             ?: prefs.getStringSet("favorites", emptySet())!!.sortedBy { id -> apps.find { it.id == id }?.label?.lowercase() ?: id }
-        // Ordered widget ids; drop any whose app was uninstalled
-        widgets = prefs.getString("widgets", "")!!.split(",").mapNotNull { it.toIntOrNull() }
-            .filter { widgetManager.getAppWidgetInfo(it) != null }
+        // Ordered pages; first run migrates the old "widgets" list. Drop system widgets whose app was uninstalled.
+        pages = (prefs.getString("pages", null)?.split(",")
+            ?: prefs.getString("widgets", "")!!.split(",").filter { it.isNotEmpty() }.map { "w:$it" })
+            .filter { it.isNotEmpty() }
+            .filter { p -> NativeWidget.of(p) != null || p.removePrefix("w:").toIntOrNull()?.let { widgetManager.getAppWidgetInfo(it) } != null }
+        refreshWeather()
         resumes++
     }
 
@@ -436,7 +501,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun MenuItem(label: String, onClick: () -> Unit) = BasicText(
         label,
-        Modifier.clickable(interactionSource = null, indication = null) { menuFor = null; widgetMenu = null; onClick() }
+        Modifier.clickable(interactionSource = null, indication = null) { menuFor = null; widgetMenu = null; choosingWidget = false; onClick() }
             .padding(vertical = 6.dp),
         style = SmallText,
     )
