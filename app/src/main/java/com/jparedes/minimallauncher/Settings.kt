@@ -19,6 +19,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.roundToInt
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -113,8 +124,9 @@ fun SettingsScreen(onPickPhoto: () -> Unit, onBackgroundChanged: () -> Unit, app
             // tapping "photo…" always opens the picker, so it doubles as "change photo"
             Choice(stringResource(R.string.s_bg_photo), Look.background == Look.BG_PHOTO, onPickPhoto)
         }
-        if (Look.background != Look.BG_NONE) Section(stringResource(R.string.s_dim)) {
-            listOf(0, 20, 40, 60, 80, 90, 95).forEach { d -> Choice("$d %", Look.dim == d) { set { Look.dim = d } } }
+        if (Look.background != Look.BG_NONE) Column(Modifier.padding(top = 30.dp)) {
+            BasicText(stringResource(R.string.s_dim), style = SmallText.copy(fontSize = 13.sp))
+            DimSlider()
         }
         if (Look.background == Look.BG_PHOTO) Section(stringResource(R.string.s_gray)) {
             Choice(stringResource(R.string.s_on), Look.gray) { set { Look.gray = true } }
@@ -175,5 +187,32 @@ private fun AppPicker(apps: List<App>, onPick: (App) -> Unit, onCancel: () -> Un
                 )
             }
         }
+    }
+}
+
+/** Dim amount 0–98 %: tap or drag the line. Updates live; saved when the finger lifts. */
+@Composable
+private fun DimSlider() {
+    val fg = Fg
+    val dim = Dim
+    fun valueAt(x: Float, width: Int) = (x / width * 98).roundToInt().coerceIn(0, 98)
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Canvas(
+            Modifier.weight(1f).height(36.dp)
+                .pointerInput(Unit) { detectTapGestures { Look.dim = valueAt(it.x, size.width); Look.save() } }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(onDragEnd = { Look.save() }, onDragCancel = { Look.save() }) { change, _ ->
+                        change.consume()
+                        Look.dim = valueAt(change.position.x, size.width)
+                    }
+                }
+        ) {
+            val y = size.height / 2
+            val x = size.width * Look.dim / 98f
+            drawLine(dim, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            drawLine(fg, Offset(0f, y), Offset(x, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            drawCircle(fg, radius = 8.dp.toPx(), center = Offset(x, y))
+        }
+        BasicText("${Look.dim} %", Modifier.padding(start = 18.dp).width(56.dp), style = RowText.copy(fontSize = 19.sp))
     }
 }

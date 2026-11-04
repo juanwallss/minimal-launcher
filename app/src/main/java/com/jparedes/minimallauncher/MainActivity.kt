@@ -80,9 +80,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.systemGestures
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.WindowInsetsSides
 import kotlin.math.abs
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -853,8 +850,8 @@ private fun LetterBar(letters: List<String>, selected: String?, onSelect: (Strin
     val haptics = LocalHapticFeedback.current
     var touchY by remember { mutableStateOf<Float?>(null) } // finger y inside the padded strip, null when not touching
     val pad = 48.dp
-    // Keep clear of the system back-gesture strip on the right edge (its width follows the user's sensitivity setting)
-    Box(Modifier.windowInsetsPadding(WindowInsets.systemGestures.only(WindowInsetsSides.End)).width(44.dp).fillMaxHeight()) {
+    // Sits at the edge, inside the back-gesture strip: the deferred selection below keeps back swipes from picking a letter
+    Box(Modifier.width(44.dp).fillMaxHeight()) {
         Column(
             Modifier.fillMaxSize().padding(vertical = pad)
                 .pointerInput(letters) {
