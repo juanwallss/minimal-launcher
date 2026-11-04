@@ -17,6 +17,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -175,7 +178,7 @@ class MainActivity : ComponentActivity() {
                 Column(
                     Modifier.weight(1f)
                         .then(if (clean) Modifier.pointerInput(Unit) { homeGestures() } else Modifier)
-                        .padding(start = 36.dp, top = 96.dp)
+                        .padding(start = 36.dp, top = 40.dp)
                 ) {
                     Clock()
                     if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
@@ -369,6 +372,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Fonts put blank space (side bearing) before the first glyph, and it grows with size —
+    // so the big thin clock looked indented next to the date. Measure the real ink edge and pull it back.
+    private val inkPaint by lazy { android.graphics.Paint().apply { typeface = resources.getFont(R.font.jost) } }
+
+    @Composable
+    private fun Modifier.alignInk(text: String, size: TextUnit, weight: Int): Modifier {
+        val px = with(LocalDensity.current) { size.toPx() }
+        val left = remember(text, px, weight) {
+            inkPaint.textSize = px
+            inkPaint.fontVariationSettings = "'wght' $weight"
+            android.graphics.Rect().also { inkPaint.getTextBounds(text, 0, text.length, it) }.left
+        }
+        return offset { IntOffset(-left, 0) }
+    }
+
     // Tap time → alarms, tap date → calendar, long-press date → notification-dot access
     @Composable
     private fun Clock() {
@@ -379,26 +397,28 @@ class MainActivity : ComponentActivity() {
             }
         }
         Column(Modifier.padding(bottom = 64.dp)) {
+            val time = now.format(DateTimeFormatter.ofPattern("HH:mm"))
             BasicText(
-                now.format(DateTimeFormatter.ofPattern("HH:mm")),
-                Modifier.clickable(interactionSource = null, indication = null) {
+                time,
+                Modifier.alignInk(time, 88.sp, 100).clickable(interactionSource = null, indication = null) {
                     safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS))
                 },
                 style = TextStyle(color = Fg, fontSize = 88.sp, fontFamily = Thin, fontWeight = FontWeight.Thin),
             )
+            val date = now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
             BasicText(
-                now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase(),
-                Modifier.combinedClickable(
+                date,
+                Modifier.alignInk(date, 16.sp, 400).combinedClickable(
                     interactionSource = null, indication = null,
                     onLongClick = { safeStart(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                 ) { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)) },
                 style = SmallText.copy(fontSize = 16.sp),
             )
-            // battery · next event (tap: grant calendar access, then opens the calendar)
+            // battery · next event (tap: grant calendar access, then opens the calendar) · • n notifications
             val (level, charging) = battery()
             val event = remember(now, resumes) { nextEvent() }
-            BasicText(
-                buildString {
+            val notified = NotificationDots.packages.value.size
+            val status = buildString {
                     if (charging) append("cargando ")
                     append("$level %")
                     event?.let { (title, at) ->
@@ -406,15 +426,25 @@ class MainActivity : ComponentActivity() {
                         if (at.toLocalDate() != now.toLocalDate()) append("mañana ")
                         append(at.format(DateTimeFormatter.ofPattern("HH:mm"))).append(' ').append(title)
                     }
-                },
-                Modifier.padding(top = 6.dp).clickable(interactionSource = null, indication = null) {
-                    if (hasCalendar()) safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR))
-                    else askCalendar.launch(Manifest.permission.READ_CALENDAR)
-                },
-                style = SmallText.copy(fontSize = 14.sp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+                }
+            Row(Modifier.padding(top = 6.dp).alignInk(status, 14.sp, 400)) {
+                BasicText(
+                    status,
+                    Modifier.weight(1f, fill = false).clickable(interactionSource = null, indication = null) {
+                        if (hasCalendar()) safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR))
+                        else askCalendar.launch(Manifest.permission.READ_CALENDAR)
+                    },
+                    style = SmallText.copy(fontSize = 14.sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                // How many apps have notifications; tap opens the shade
+                if (notified > 0) BasicText(
+                    "  ·  • $notified",
+                    Modifier.clickable(interactionSource = null, indication = null) { expandNotifications() },
+                    style = SmallText.copy(fontSize = 14.sp, color = Fg),
+                )
+            }
         }
     }
 
