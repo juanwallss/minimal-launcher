@@ -80,6 +80,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import kotlin.math.abs
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -849,7 +853,8 @@ private fun LetterBar(letters: List<String>, selected: String?, onSelect: (Strin
     val haptics = LocalHapticFeedback.current
     var touchY by remember { mutableStateOf<Float?>(null) } // finger y inside the padded strip, null when not touching
     val pad = 48.dp
-    Box(Modifier.width(44.dp).fillMaxHeight()) {
+    // Keep clear of the system back-gesture strip on the right edge (its width follows the user's sensitivity setting)
+    Box(Modifier.windowInsetsPadding(WindowInsets.systemGestures.only(WindowInsetsSides.End)).width(44.dp).fillMaxHeight()) {
         Column(
             Modifier.fillMaxSize().padding(vertical = pad)
                 .pointerInput(letters) {
@@ -860,13 +865,24 @@ private fun LetterBar(letters: List<String>, selected: String?, onSelect: (Strin
                         val l = letters[(y / size.height * letters.size).toInt().coerceIn(letters.indices)]
                         if (l != last) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); last = l; onSelect(l) }
                     }
+                    // Nothing is selected on touch-down: a back swipe from the edge starts here too.
+                    // Select on a vertical drag (follows the finger) or on a tap (on release); a sideways swipe selects nothing.
                     awaitEachGesture {
                         try {
-                            last = null // first touch always selects (selected may be stale in this closure)
-                            pick(awaitFirstDown().position.y)
+                            last = null // first pick always selects (selected may be stale in this closure)
+                            val down = awaitFirstDown()
+                            var dragging = false
+                            var sideways = false
+                            val slop = viewConfiguration.touchSlop
                             do {
                                 val event = awaitPointerEvent()
-                                event.changes.forEach { pick(it.position.y); it.consume() }
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                val d = change.position - down.position
+                                if (!dragging && !sideways && (abs(d.x) > slop || abs(d.y) > slop)) {
+                                    if (abs(d.y) >= abs(d.x)) dragging = true else sideways = true
+                                }
+                                if (dragging) { pick(change.position.y); change.consume() }
+                                else if (!change.pressed && !sideways && change.uptimeMillis - down.uptimeMillis < 500) pick(down.position.y) // tap
                             } while (event.changes.any { it.pressed })
                         } finally {
                             touchY = null
