@@ -8,7 +8,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +54,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 data class App(val label: String, val pkg: String, val activity: String) {
+    val id = "$pkg/$activity"
     val letter: String = label.firstOrNull()?.uppercaseChar()?.takeIf { it.isLetter() }?.toString() ?: "#"
 }
 
@@ -64,6 +67,13 @@ private val Thin = FontFamily.SansSerif
 class MainActivity : ComponentActivity() {
     private var apps by mutableStateOf(emptyList<App>())
     private var letter by mutableStateOf<String?>(null)
+    private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
+    private var favorites by mutableStateOf(emptySet<String>())
+
+    private fun toggleFavorite(app: App) {
+        favorites = if (app.id in favorites) favorites - app.id else favorites + app.id
+        prefs.edit().putStringSet("favorites", favorites).apply()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -77,21 +87,16 @@ class MainActivity : ComponentActivity() {
             Row(Modifier.fillMaxSize().background(Bg).windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Column(Modifier.weight(1f).padding(start = 36.dp, top = 96.dp)) {
                     Clock()
-                    key(letter) { // fresh scroll position per letter
-                        LazyColumn(Modifier.fadeEdges()) {
-                            items(apps.filter { it.letter == letter }, key = { it.pkg + "/" + it.activity }) { app ->
-                                BasicText(
-                                    app.label.lowercase(),
-                                    Modifier.fillMaxWidth()
-                                        .clickable(interactionSource = null, indication = null) { open(app) }
-                                        .padding(vertical = 11.dp),
-                                    style = TextStyle(
-                                        color = Fg, fontSize = 24.sp, fontFamily = Thin,
-                                        fontWeight = FontWeight.Light, letterSpacing = 0.5.sp,
-                                    ),
-                                )
+                    Box(Modifier.weight(1f)) {
+                        key(letter) { // fresh scroll position per letter
+                            LazyColumn(Modifier.fadeEdges()) {
+                                items(apps.filter { it.letter == letter }, key = { it.id }) { AppRow(it) }
                             }
                         }
+                    }
+                    // Favorites pinned at the bottom, always visible
+                    Column(Modifier.padding(bottom = 32.dp)) {
+                        apps.filter { it.id in favorites }.forEach { AppRow(it) }
                     }
                 }
                 LetterBar(letters, letter) { letter = it }
@@ -103,11 +108,32 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         letter = null // pressing Home always lands on the clean clock view
+        favorites = prefs.getStringSet("favorites", emptySet())!!.toSet()
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         apps = packageManager.queryIntentActivities(intent, 0)
             .filter { it.activityInfo.packageName != packageName }
             .map { App(it.loadLabel(packageManager).toString(), it.activityInfo.packageName, it.activityInfo.name) }
             .sortedBy { it.label.lowercase() }
+    }
+
+    // Tap opens; long-press adds/removes from favorites
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable
+    private fun AppRow(app: App) {
+        val haptics = LocalHapticFeedback.current
+        BasicText(
+            app.label.lowercase(),
+            Modifier.fillMaxWidth()
+                .combinedClickable(
+                    interactionSource = null, indication = null,
+                    onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); toggleFavorite(app) },
+                ) { open(app) }
+                .padding(vertical = 11.dp),
+            style = TextStyle(
+                color = Fg, fontSize = 24.sp, fontFamily = Thin,
+                fontWeight = FontWeight.Light, letterSpacing = 0.5.sp,
+            ),
+        )
     }
 
     private fun open(app: App) {
