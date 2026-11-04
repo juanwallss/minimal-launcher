@@ -301,7 +301,7 @@ class MainActivity : ComponentActivity() {
                 Modifier.clickable(interactionSource = null, indication = null) {
                     safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS))
                 },
-                style = TextStyle(color = Fg, fontSize = 72.sp, fontFamily = Thin, fontWeight = FontWeight.Thin),
+                style = TextStyle(color = Fg, fontSize = 88.sp, fontFamily = Thin, fontWeight = FontWeight.Thin),
             )
             BasicText(
                 now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase(),
