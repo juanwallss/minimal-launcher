@@ -48,7 +48,9 @@ internal object Look {
     const val BG_PHOTO = "photo"
 
     var background by mutableStateOf(BG_NONE)
-    var dim by mutableIntStateOf(40)       // % of the theme color laid over the background
+    const val DIM_MIN = 80                 // below this the photo fights with the text
+    const val DIM_MAX = 98
+    var dim by mutableIntStateOf(85)       // % of the theme color laid over the background
     var gray by mutableStateOf(true)       // photo in black & white
     var clockSize by mutableIntStateOf(1)  // 0 small · 1 medium · 2 large
     var textSize by mutableIntStateOf(1)
@@ -67,7 +69,7 @@ internal object Look {
     fun load(ctx: Context) {
         val p = ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE).also { prefs = it }
         background = p.getString("bg", BG_NONE)!!
-        dim = p.getInt("bgDim", 40)
+        dim = p.getInt("bgDim", 85).coerceIn(DIM_MIN, DIM_MAX)
         gray = p.getBoolean("bgGray", true)
         clockSize = p.getInt("clockSize", 1)
         textSize = p.getInt("textSize", 1)
@@ -190,12 +192,13 @@ private fun AppPicker(apps: List<App>, onPick: (App) -> Unit, onCancel: () -> Un
     }
 }
 
-/** Dim amount 0–98 %: tap or drag the line. Updates live; saved when the finger lifts. */
+/** Dim amount 80–98 %: tap or drag the line. Updates live; saved when the finger lifts. */
 @Composable
 private fun DimSlider() {
     val fg = Fg
     val dim = Dim
-    fun valueAt(x: Float, width: Int) = (x / width * 98).roundToInt().coerceIn(0, 98)
+    val span = Look.DIM_MAX - Look.DIM_MIN
+    fun valueAt(x: Float, width: Int) = (Look.DIM_MIN + x / width * span).roundToInt().coerceIn(Look.DIM_MIN, Look.DIM_MAX)
     Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Canvas(
             Modifier.weight(1f).height(36.dp)
@@ -208,7 +211,7 @@ private fun DimSlider() {
                 }
         ) {
             val y = size.height / 2
-            val x = size.width * Look.dim / 98f
+            val x = size.width * (Look.dim - Look.DIM_MIN) / span.toFloat()
             drawLine(dim, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
             drawLine(fg, Offset(0f, y), Offset(x, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
             drawCircle(fg, radius = 8.dp.toPx(), center = Offset(x, y))
