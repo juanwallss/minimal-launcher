@@ -45,4 +45,20 @@
     <string name="lock_service_label">Minimal: doble toque para bloquear</string>
     <string name="dots_service_label">Minimal: puntos de notificación</string>
     <string name="lock_service_desc">Solo se usa para bloquear la pantalla cuando haces doble toque en el inicio de Minimal. No lee ni guarda nada.</string>
+    <string name="s_title">ajustes</string>
+    <string name="s_background">fondo</string>
+    <string name="s_bg_none">ninguno</string>
+    <string name="s_bg_system">fondo del sistema</string>
+    <string name="s_bg_photo">foto…</string>
+    <string name="s_dim">atenuar</string>
+    <string name="s_gray">blanco y negro</string>
+    <string name="s_on">sí</string>
+    <string name="s_off">no</string>
+    <string name="s_clock">reloj</string>
+    <string name="s_text">texto</string>
+    <string name="s_small">pequeño</string>
+    <string name="s_medium">mediano</string>
+    <string name="s_large">grande</string>
+    <string name="s_format">formato de hora</string>
+    <string name="s_done">listo</string>
 </resources>

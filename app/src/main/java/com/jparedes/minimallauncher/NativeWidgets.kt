@@ -146,7 +146,7 @@ fun AgendaWidget(events: List<CalEvent>?, onAsk: () -> Unit, onOpen: () -> Unit)
                     starts == today.plusDays(1) -> stringResource(R.string.tomorrow)
                     else -> e.begin.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).lowercase()
                 }
-                val time = if (e.allDay) stringResource(R.string.all_day) else e.begin.format(DateTimeFormatter.ofPattern("HH:mm"))
+                val time = if (e.allDay) stringResource(R.string.all_day) else e.begin.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase()
                 Column(Modifier.padding(bottom = 10.dp)) {
                     BasicText(e.title.ifBlank { stringResource(R.string.untitled) }, style = RowText.copy(fontSize = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     BasicText("$day · $time", style = SmallText.copy(fontSize = 13.sp))

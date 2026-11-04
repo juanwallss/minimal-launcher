@@ -1,6 +1,15 @@
 package com.jparedes.minimallauncher
 
 import android.Manifest
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.drawable.ColorDrawable
+import android.view.WindowManager
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import android.accessibilityservice.AccessibilityService
 import android.content.BroadcastReceiver
 import android.content.ContentUris
@@ -145,7 +154,7 @@ internal val Thin = FontFamily(
         Font(R.font.jost, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
     }
 )
-internal val RowText @Composable get() = TextStyle(color = Fg, fontSize = 24.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
+internal val RowText @Composable get() = TextStyle(color = Fg, fontSize = Look.textSp.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp)
 internal val Grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 internal val SmallText @Composable get() = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp)
 
@@ -176,6 +185,57 @@ class MainActivity : ComponentActivity() {
     private var choosingWidget by mutableStateOf(false)    // inline "which widget?" row is open
     private var pendingWidget = -1
     private var pageBy: (Int) -> Unit = {} // set by the pager; widget views can't reach Compose state directly
+
+    // --- Settings & background
+    private var settingsOpen by mutableStateOf(false)
+    private var bgImage by mutableStateOf<ImageBitmap?>(null)
+    private val bgFile by lazy { File(filesDir, "background.jpg") }
+
+    private val pickPhoto = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        lifecycleScope.launch {
+            val bmp = withContext(Dispatchers.IO) { runCatching { importBackground(uri) }.getOrNull() }
+            if (bmp != null) {
+                bgImage = bmp.asImageBitmap()
+                Look.background = Look.BG_PHOTO; Look.save()
+                applyWindowBackground()
+            }
+        }
+    }
+
+    /** Copies the chosen photo into app storage, scaled to just cover the screen (picker URIs don't last). */
+    private fun importBackground(uri: Uri): android.graphics.Bitmap {
+        val dm = resources.displayMetrics
+        val bmp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(contentResolver, uri)) { decoder, info, _ ->
+                val scale = maxOf(dm.widthPixels.toFloat() / info.size.width, dm.heightPixels.toFloat() / info.size.height).coerceAtMost(1f)
+                decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE // so it can be re-encoded below
+            } // ImageDecoder also applies the photo's EXIF rotation
+        } else {
+            contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it) }
+        }
+        bgFile.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+        return bmp
+    }
+
+    /** System wallpaper is drawn by Android behind a transparent window; otherwise the window is opaque. */
+    private fun applyWindowBackground() {
+        if (Look.background == Look.BG_SYSTEM) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+            window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+            window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
+        }
+    }
+
+    // Home pressed while the launcher is already in front: close whatever is open
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        settingsOpen = false
+        resetView()
+    }
 
     private var weather by mutableStateOf<Weather?>(null)
     private var weatherLoading by mutableStateOf(false)
@@ -356,8 +416,19 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        Look.load(this)
+        applyWindowBackground()
+        if (Look.background == Look.BG_PHOTO) lifecycleScope.launch {
+            bgImage = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(bgFile.path)?.asImageBitmap() }
+        }
         setContent {
-            BackHandler { if (menuFor != null) menuFor = null else resetView() } // home screen never exits
+            BackHandler { // home screen never exits
+                when {
+                    settingsOpen -> settingsOpen = false
+                    menuFor != null -> menuFor = null
+                    else -> resetView()
+                }
+            }
             val visible = apps.filter { it.id !in hidden }
             val q = query
             val listed = when {
@@ -365,7 +436,18 @@ class MainActivity : ComponentActivity() {
                 else -> visible.filter { it.letter == letter }
             }
             val clean = letter == null && q == null
-            Row(Modifier.fillMaxSize().background(Bg).windowInsetsPadding(WindowInsets.safeDrawing)) {
+            // Layers: theme color, or photo / system wallpaper with a theme-colored veil so text stays readable
+            Box(Modifier.fillMaxSize().then(if (Look.background == Look.BG_NONE) Modifier.background(Bg) else Modifier)) {
+            if (Look.background == Look.BG_PHOTO) bgImage?.let {
+                Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = if (Look.gray) Grayscale else null)
+            }
+            if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(Bg.copy(alpha = Look.dim / 100f)))
+            if (settingsOpen) SettingsScreen(
+                onPickPhoto = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onBackgroundChanged = ::applyWindowBackground,
+                onClose = { settingsOpen = false },
+            ) else
+            Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Column(
                     Modifier.weight(1f)
                         .then(if (clean) Modifier.pointerInput(Unit) { homeGestures() } else Modifier)
@@ -391,6 +473,7 @@ class MainActivity : ComponentActivity() {
                 }
                 LetterBar(visible.map { it.letter }.distinct(), letter) { letter = it; query = null; menuFor = null }
             }
+            } // layers
         }
     }
 
@@ -595,14 +678,23 @@ class MainActivity : ComponentActivity() {
             }
         }
         Column(Modifier.padding(bottom = 64.dp)) {
-            val time = now.format(DateTimeFormatter.ofPattern("HH:mm"))
-            BasicText(
-                time,
-                Modifier.alignInk(time, 88.sp, 100).clickable(interactionSource = null, indication = null) {
-                    safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS))
-                },
-                style = TextStyle(color = Fg, fontSize = 88.sp, fontFamily = Thin, fontWeight = FontWeight.Thin),
-            )
+            val time = now.format(DateTimeFormatter.ofPattern(if (Look.clock24) "HH:mm" else "h:mm"))
+            Row(verticalAlignment = Alignment.Bottom) {
+                BasicText(
+                    time,
+                    // tap → alarms, long-press → launcher settings
+                    Modifier.alignInk(time, Look.clockSp.sp, 100).combinedClickable(
+                        interactionSource = null, indication = null,
+                        onLongClick = { settingsOpen = true },
+                    ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
+                    style = TextStyle(color = Fg, fontSize = Look.clockSp.sp, fontFamily = Thin, fontWeight = FontWeight.Thin),
+                )
+                if (!Look.clock24) BasicText(
+                    now.format(DateTimeFormatter.ofPattern("a")).lowercase(),
+                    Modifier.padding(start = 10.dp, bottom = (Look.clockSp * 0.2f).dp),
+                    style = SmallText.copy(fontSize = 18.sp),
+                )
+            }
             val date = now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
             BasicText(
                 date,
@@ -621,7 +713,7 @@ class MainActivity : ComponentActivity() {
                     event?.let { (title, at) ->
                         append("  ·  ")
                         if (at.toLocalDate() != now.toLocalDate()) append(stringResource(R.string.tomorrow)).append(' ')
-                        append(at.format(DateTimeFormatter.ofPattern("HH:mm"))).append(' ').append(title)
+                        append(at.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase()).append(' ').append(title)
                     }
                 }
             Row(Modifier.padding(top = 6.dp).alignInk(status, 14.sp, 400)) {

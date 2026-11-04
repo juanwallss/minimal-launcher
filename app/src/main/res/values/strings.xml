@@ -45,4 +45,20 @@
     <string name="lock_service_label">Minimal: double tap to lock</string>
     <string name="dots_service_label">Minimal: notification dots</string>
     <string name="lock_service_desc">Only used to lock the screen when you double tap the Minimal home screen. It doesn\'t read or store anything.</string>
+    <string name="s_title">settings</string>
+    <string name="s_background">background</string>
+    <string name="s_bg_none">none</string>
+    <string name="s_bg_system">wallpaper</string>
+    <string name="s_bg_photo">photo…</string>
+    <string name="s_dim">dim</string>
+    <string name="s_gray">black &amp; white</string>
+    <string name="s_on">on</string>
+    <string name="s_off">off</string>
+    <string name="s_clock">clock</string>
+    <string name="s_text">text</string>
+    <string name="s_small">small</string>
+    <string name="s_medium">medium</string>
+    <string name="s_large">large</string>
+    <string name="s_format">time format</string>
+    <string name="s_done">done</string>
 </resources>
