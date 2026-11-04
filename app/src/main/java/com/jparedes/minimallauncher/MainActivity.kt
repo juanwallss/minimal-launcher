@@ -235,7 +235,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 Image(iconOf(app), null, Modifier.size(30.dp), alpha = if (isHidden) 0.4f else 0.8f, colorFilter = Grayscale)
                 BasicText(
-                    app.label.lowercase() + if (dot) "  •" else "",
+                    app.label.lowercase().replaceFirstChar { it.uppercase() } + if (dot) "  •" else "",
                     style = if (isHidden) RowText.copy(color = Dim) else RowText,
                 )
             }
