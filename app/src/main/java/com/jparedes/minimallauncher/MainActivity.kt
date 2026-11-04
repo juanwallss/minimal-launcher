@@ -446,7 +446,8 @@ class MainActivity : ComponentActivity() {
             if (Look.background == Look.BG_PHOTO) bgImage?.let {
                 Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = if (Look.gray) Grayscale else null)
             }
-            if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(Bg.copy(alpha = Look.dim / 100f)))
+            // Settings get an extra-strong veil so its many small labels stay readable over any photo
+            if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(Bg.copy(alpha = (if (settingsOpen) maxOf(Look.dim, 85) else Look.dim) / 100f)))
             if (settingsOpen) SettingsScreen(
                 onPickPhoto = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onBackgroundChanged = ::applyWindowBackground,

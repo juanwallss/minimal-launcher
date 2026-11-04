@@ -114,7 +114,7 @@ fun SettingsScreen(onPickPhoto: () -> Unit, onBackgroundChanged: () -> Unit, app
             Choice(stringResource(R.string.s_bg_photo), Look.background == Look.BG_PHOTO, onPickPhoto)
         }
         if (Look.background != Look.BG_NONE) Section(stringResource(R.string.s_dim)) {
-            listOf(0, 20, 40, 60, 80).forEach { d -> Choice("$d %", Look.dim == d) { set { Look.dim = d } } }
+            listOf(0, 20, 40, 60, 80, 90, 95).forEach { d -> Choice("$d %", Look.dim == d) { set { Look.dim = d } } }
         }
         if (Look.background == Look.BG_PHOTO) Section(stringResource(R.string.s_gray)) {
             Choice(stringResource(R.string.s_on), Look.gray) { set { Look.gray = true } }
