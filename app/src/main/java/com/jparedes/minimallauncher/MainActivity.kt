@@ -45,7 +45,10 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,7 +65,13 @@ data class App(val label: String, val pkg: String, val activity: String) {
 private val Bg = Color(0xFF0A0A0A)
 private val Fg = Color(0xFFE8E6E1)      // warm off-white
 private val Dim = Color(0xFF6B6965)     // muted gray for secondary text
-private val Thin = FontFamily.SansSerif
+// Jost (variable font, OFL) — one file, instantiated at the weights we use
+@OptIn(ExperimentalTextApi::class)
+private val Thin = FontFamily(
+    listOf(FontWeight.Thin, FontWeight.ExtraLight, FontWeight.Light, FontWeight.Normal).map {
+        Font(R.font.jost, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
+    }
+)
 
 class MainActivity : ComponentActivity() {
     private var apps by mutableStateOf(emptyList<App>())
