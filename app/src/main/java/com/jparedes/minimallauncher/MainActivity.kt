@@ -3,6 +3,7 @@ package com.jparedes.minimallauncher
 import android.Manifest
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
 import android.view.WindowManager
 import androidx.activity.result.PickVisualMediaRequest
@@ -219,14 +220,20 @@ class MainActivity : ComponentActivity() {
         return bmp
     }
 
-    /** System wallpaper is drawn by Android behind a transparent window; otherwise the window is opaque. */
+    /**
+     * System wallpaper is drawn by Android behind a transparent window; otherwise the window is opaque.
+     * The pixel format must change too: on an OPAQUE surface nothing clears the previous frame, so with a
+     * transparent background every frame was painted over the last one (texts piling up on each other).
+     */
     private fun applyWindowBackground() {
         if (Look.background == Look.BG_SYSTEM) {
+            window.setFormat(PixelFormat.TRANSLUCENT)
             window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
             window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
             window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
+            window.setFormat(PixelFormat.OPAQUE)
         }
     }
 
