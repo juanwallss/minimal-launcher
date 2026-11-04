@@ -13,6 +13,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -94,7 +95,11 @@ class MainActivity : ComponentActivity() {
             BackHandler { letter = null } // back clears the filter; home screen never exits
             val letters = apps.map { it.letter }.distinct()
             Row(Modifier.fillMaxSize().background(Bg).windowInsetsPadding(WindowInsets.safeDrawing)) {
-                Column(Modifier.weight(1f).padding(start = 36.dp, top = 96.dp)) {
+                Column(
+                    Modifier.weight(1f)
+                        .then(if (letter == null) Modifier.pointerInput(Unit) { swipeDownForNotifications() } else Modifier)
+                        .padding(start = 36.dp, top = 96.dp)
+                ) {
                     Clock()
                     Box(Modifier.weight(1f)) {
                         key(letter) { // fresh scroll position per letter
@@ -143,6 +148,22 @@ class MainActivity : ComponentActivity() {
                 fontWeight = FontWeight.Light, letterSpacing = 0.5.sp,
             ),
         )
+    }
+
+    // Swipe down on the clean home view → pull the notification shade
+    private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.swipeDownForNotifications() {
+        var dragged = 0f
+        detectVerticalDragGestures(onDragStart = { dragged = 0f }) { change, dy ->
+            dragged += dy
+            if (dragged > 80.dp.toPx()) { change.consume(); dragged = Float.NEGATIVE_INFINITY; expandNotifications() }
+        }
+    }
+
+    // Hidden API, but the standard way launchers do this; needs EXPAND_STATUS_BAR (normal permission)
+    @android.annotation.SuppressLint("WrongConstant")
+    private fun expandNotifications() = runCatching {
+        val sb = getSystemService("statusbar")
+        Class.forName("android.app.StatusBarManager").getMethod("expandNotificationsPanel").invoke(sb)
     }
 
     private fun open(app: App) {
