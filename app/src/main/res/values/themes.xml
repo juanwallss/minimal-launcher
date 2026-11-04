@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Transparent window from creation: the renderer decides opacity when the window is created, so
+         switching to the system wallpaper at runtime only works if the window was never opaque.
+         Compose paints the theme color / photo on top whenever the wallpaper isn't used. -->
+    <style name="Launcher" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowShowWallpaper">false</item>
+    </style>
+</resources>

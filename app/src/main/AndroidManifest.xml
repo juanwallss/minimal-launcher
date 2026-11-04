@@ -18,7 +18,7 @@
 
     <application
         android:label="Minimal"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/Launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"
