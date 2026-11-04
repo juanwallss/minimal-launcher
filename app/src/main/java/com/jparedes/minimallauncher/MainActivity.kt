@@ -105,6 +105,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
@@ -270,9 +271,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun WidgetPage(page: String) {
         val haptics = LocalHapticFeedback.current
-        val longPress = Modifier.pointerInput(page) {
-            detectTapGestures(onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); widgetMenu = page })
-        }
+        val longPress = Modifier.longPressFirst { haptics.performHapticFeedback(HapticFeedbackType.LongPress); widgetMenu = page }
         val calendar = { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)); Unit }
         when (NativeWidget.of(page)) {
             NativeWidget.AGENDA -> Box(longPress) {
@@ -770,6 +769,29 @@ private fun LetterBar(letters: List<String>, selected: String?, onSelect: (Strin
                     style = TextStyle(color = Bg, fontSize = 30.sp, fontFamily = Thin, fontWeight = FontWeight.Normal),
                 )
             }
+        }
+    }
+}
+
+// Long-press that wins over the children: watched in the Initial pass (before any clickable inside sees the touch),
+// and once it fires the rest of the gesture is swallowed so the child doesn't also get a click.
+// A normal tap or a drag (pager swipe) passes through untouched.
+private fun Modifier.longPressFirst(onLongPress: () -> Unit) = pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        val released = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            while (true) {
+                val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) break
+            }
+            true
+        }
+        if (released == null) { // timed out with the finger still down and still → long press
+            onLongPress()
+            do {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                event.changes.forEach { it.consume() }
+            } while (event.changes.any { it.pressed })
         }
     }
 }
