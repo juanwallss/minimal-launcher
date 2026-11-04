@@ -643,40 +643,68 @@ class MainActivity : ComponentActivity() {
     )
 }
 
-// Vertical A–Z strip: tap or drag your thumb along it to pick a letter
+// Vertical A–Z strip: tap or drag your thumb along it to pick a letter.
+// While the finger is down, a bubble with the current letter floats beside it.
 @Composable
 private fun LetterBar(letters: List<String>, selected: String?, onSelect: (String) -> Unit) {
     val haptics = LocalHapticFeedback.current
-    Column(
-        Modifier.width(44.dp).fillMaxHeight().padding(vertical = 48.dp)
-            .pointerInput(letters) {
-                fun pick(y: Float) {
-                    if (letters.isEmpty()) return
-                    val l = letters[(y / size.height * letters.size).toInt().coerceIn(letters.indices)]
-                    if (l != selected) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onSelect(l)
-                }
-                awaitEachGesture {
-                    pick(awaitFirstDown().position.y)
-                    do {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { pick(it.position.y); it.consume() }
-                    } while (event.changes.any { it.pressed })
-                }
-            },
-        verticalArrangement = Arrangement.SpaceEvenly,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        letters.forEach { l ->
-            val on = l == selected
-            BasicText(
-                l.lowercase(),
-                style = TextStyle(
-                    color = if (on) Fg else Dim, fontFamily = Thin,
-                    fontSize = if (on) 20.sp else 13.sp,
-                    fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
-                ),
-            )
+    var touchY by remember { mutableStateOf<Float?>(null) } // finger y inside the padded strip, null when not touching
+    val pad = 48.dp
+    Box(Modifier.width(44.dp).fillMaxHeight()) {
+        Column(
+            Modifier.fillMaxSize().padding(vertical = pad)
+                .pointerInput(letters) {
+                    var last: String? = null
+                    fun pick(y: Float) {
+                        if (letters.isEmpty()) return
+                        touchY = y.coerceIn(0f, size.height.toFloat())
+                        val l = letters[(y / size.height * letters.size).toInt().coerceIn(letters.indices)]
+                        if (l != last) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); last = l; onSelect(l) }
+                    }
+                    awaitEachGesture {
+                        try {
+                            last = null // first touch always selects (selected may be stale in this closure)
+                            pick(awaitFirstDown().position.y)
+                            do {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { pick(it.position.y); it.consume() }
+                            } while (event.changes.any { it.pressed })
+                        } finally {
+                            touchY = null
+                        }
+                    }
+                },
+            verticalArrangement = Arrangement.SpaceEvenly,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            letters.forEach { l ->
+                val on = l == selected
+                BasicText(
+                    l.lowercase(),
+                    style = TextStyle(
+                        color = if (on) Fg else Dim, fontFamily = Thin,
+                        fontSize = if (on) 20.sp else 13.sp,
+                        fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
+                    ),
+                )
+            }
+        }
+        // Bubble: inverted circle to the left of the strip, following the finger
+        val y = touchY
+        if (y != null && selected != null) {
+            val bubble = 60.dp
+            Box(
+                Modifier
+                    .offset { IntOffset(-(bubble + 28.dp).roundToPx(), (y + pad.toPx() - bubble.toPx() / 2).toInt()) }
+                    .size(bubble)
+                    .background(Fg, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText(
+                    selected.uppercase(),
+                    style = TextStyle(color = Bg, fontSize = 30.sp, fontFamily = Thin, fontWeight = FontWeight.Normal),
+                )
+            }
         }
     }
 }
