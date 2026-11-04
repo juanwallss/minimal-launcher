@@ -7,7 +7,18 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import android.content.ComponentName
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -108,9 +119,12 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    // Favorites pinned at the bottom, always visible
-                    Column(Modifier.padding(bottom = 32.dp)) {
-                        apps.filter { it.id in favorites }.forEach { AppRow(it) }
+                    // Favorites pinned at the bottom as grayscale icons, always visible
+                    Row(
+                        Modifier.padding(top = 16.dp, bottom = 32.dp).horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(28.dp),
+                    ) {
+                        apps.filter { it.id in favorites }.forEach { FavoriteIcon(it) }
                     }
                 }
                 LetterBar(letters, letter) { letter = it }
@@ -147,6 +161,29 @@ class MainActivity : ComponentActivity() {
                 color = Fg, fontSize = 24.sp, fontFamily = Thin,
                 fontWeight = FontWeight.Light, letterSpacing = 0.5.sp,
             ),
+        )
+    }
+
+    // Tap opens; long-press removes from favorites
+    @OptIn(ExperimentalFoundationApi::class)
+    @Composable
+    private fun FavoriteIcon(app: App) {
+        val haptics = LocalHapticFeedback.current
+        val icon = remember(app.id) {
+            val d = packageManager.getActivityIcon(ComponentName(app.pkg, app.activity))
+            val px = (48 * resources.displayMetrics.density).toInt()
+            Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888).also {
+                d.setBounds(0, 0, px, px); d.draw(Canvas(it))
+            }.asImageBitmap()
+        }
+        Image(
+            icon, app.label,
+            Modifier.size(44.dp).combinedClickable(
+                interactionSource = null, indication = null,
+                onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); toggleFavorite(app) },
+            ) { open(app) },
+            alpha = 0.85f,
+            colorFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
         )
     }
 
