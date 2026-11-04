@@ -17,6 +17,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import java.time.Instant
 import java.time.ZoneId
 import android.content.ComponentName
@@ -200,6 +203,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resetView() // pressing Home always lands on the clean clock view
+        // Hide the status bar (time, battery, wifi); swiping from the top edge shows it briefly
+        WindowCompat.getInsetsController(window, window.decorView).run {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.statusBars())
+        }
         hidden = prefs.getStringSet("hidden", emptySet())!!.toSet()
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         apps = packageManager.queryIntentActivities(intent, 0)
