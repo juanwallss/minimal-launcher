@@ -50,6 +50,28 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.media.AudioManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.clip
@@ -476,7 +498,14 @@ class MainActivity : ComponentActivity() {
                 Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = if (Look.gray) Grayscale else null)
             }
             if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(Bg.copy(alpha = Look.dim / 100f)))
-            if (settingsOpen) SettingsScreen(
+            AnimatedContent(
+                settingsOpen,
+                transitionSpec = {
+                    (fadeIn(tween(260)) + slideInVertically(tween(260)) { if (targetState) it / 12 else -it / 12 }) togetherWith fadeOut(tween(180))
+                },
+                label = "settings",
+            ) { inSettings ->
+            if (inSettings) SettingsScreen(
                 onPickPhoto = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onBackgroundChanged = ::applyWindowBackground,
                 apps = apps,
@@ -491,10 +520,12 @@ class MainActivity : ComponentActivity() {
                     Clock()
                     if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
                     Box(Modifier.weight(1f)) {
-                        if (clean) WidgetArea()
-                        else key(letter, q == null) { // fresh scroll position per letter / search
-                            LazyColumn(Modifier.fadeEdges()) {
-                                items(listed, key = { it.id }) { AppRow(it) }
+                        Crossfade(clean, animationSpec = tween(220), label = "home") { isClean ->
+                            if (isClean) WidgetArea()
+                            else key(letter, q == null) { // fresh scroll position (and entrance animation) per letter / search
+                                LazyColumn(Modifier.fadeEdges()) {
+                                    itemsIndexed(listed, key = { _, app -> app.id }) { i, app -> Box(Modifier.enterAnim(i)) { AppRow(app) } }
+                                }
                             }
                         }
                     }
@@ -535,6 +566,7 @@ class MainActivity : ComponentActivity() {
                 }
                 if (!Look.barBottom) LetterBar(visible.map { it.letter }.distinct(), letter) { letter = it; query = null; menuFor = null }
             }
+            } // settings ↔ home
             } // layers
         }
     }
@@ -641,11 +673,15 @@ class MainActivity : ComponentActivity() {
         val haptics = LocalHapticFeedback.current
         val dot = app.pkg in NotificationDots.packages.value
         val isHidden = app.id in hidden
+        val press = remember { MutableInteractionSource() }
+        val pressed by press.collectIsPressedAsState()
+        val pressAlpha by animateFloatAsState(if (pressed) 0.45f else 1f, tween(120), label = "press")
         Column {
             Row(
                 Modifier.fillMaxWidth()
+                    .graphicsLayer { alpha = pressAlpha }
                     .combinedClickable(
-                        interactionSource = null, indication = null,
+                        interactionSource = press, indication = null,
                         onLongClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             menuFor = if (menuFor == app.id) null else app.id
@@ -661,7 +697,11 @@ class MainActivity : ComponentActivity() {
                     style = if (isHidden) RowText.copy(color = Dim) else RowText,
                 )
             }
-            if (menuFor == app.id) {
+            AnimatedVisibility(
+                menuFor == app.id,
+                enter = expandVertically(tween(180)) + fadeIn(tween(180)),
+                exit = shrinkVertically(tween(150)) + fadeOut(tween(120)),
+            ) {
                 Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                     MenuItem(stringResource(if (app.id in favorites) R.string.fav_remove else R.string.fav_add)) {
                         toggleFavorite(app)
@@ -779,15 +819,25 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.padding(bottom = 64.dp)) {
             val time = now.format(DateTimeFormatter.ofPattern(if (Look.clock24) "HH:mm" else "h:mm"))
             Row(verticalAlignment = Alignment.Bottom) {
-                BasicText(
+                // the new minute rolls in from below while the old one drifts up and fades
+                AnimatedContent(
                     time,
-                    // tap → alarms, long-press → launcher settings
-                    Modifier.alignInk(time, Look.clockSp.sp, 100).combinedClickable(
-                        interactionSource = null, indication = null,
-                        onLongClick = { settingsOpen = true },
-                    ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
-                    style = TextStyle(color = Fg, fontSize = Look.clockSp.sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
-                )
+                    transitionSpec = {
+                        (slideInVertically(tween(450)) { it / 4 } + fadeIn(tween(450))) togetherWith
+                            (slideOutVertically(tween(350)) { -it / 4 } + fadeOut(tween(300))) using SizeTransform(clip = false)
+                    },
+                    label = "clock",
+                ) { t ->
+                    BasicText(
+                        t,
+                        // tap → alarms, long-press → launcher settings
+                        Modifier.alignInk(t, Look.clockSp.sp, 100).combinedClickable(
+                            interactionSource = null, indication = null,
+                            onLongClick = { settingsOpen = true },
+                        ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
+                        style = TextStyle(color = Fg, fontSize = Look.clockSp.sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
+                    )
+                }
                 if (!Look.clock24) BasicText(
                     now.format(DateTimeFormatter.ofPattern("a")).lowercase(),
                     Modifier.padding(start = 10.dp, bottom = (Look.clockSp * 0.2f).dp),
@@ -1012,11 +1062,13 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
     @Composable
     fun Letter(l: String) {
         val on = l == selected
+        val scale by animateFloatAsState(if (on) 1.55f else 1f, spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow), label = "letter")
+        val color by animateColorAsState(if (on) fg else dim, tween(160), label = "letterColor")
         BasicText(
             l.lowercase(),
+            Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
             style = TextStyle(
-                color = if (on) fg else dim, fontFamily = Thin, shadow = shadow,
-                fontSize = if (on) 20.sp else 13.sp,
+                color = color, fontFamily = Thin, shadow = shadow, fontSize = 13.sp,
                 fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
             ),
         )
@@ -1038,12 +1090,15 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
         val t = touch
         if (t != null && selected != null) {
             val bubble = 60.dp
+            val pop = remember { Animatable(0.5f) }
+            LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium)) }
             Box(
                 Modifier
                     .offset {
                         if (horizontal) IntOffset((t - bubble.toPx() / 2).toInt(), -(bubble + 14.dp).roundToPx())
                         else IntOffset(-(bubble + 28.dp).roundToPx(), (t + pad.toPx() - bubble.toPx() / 2).toInt())
                     }
+                    .graphicsLayer { scaleX = pop.value; scaleY = pop.value; alpha = ((pop.value - 0.5f) * 2f).coerceIn(0f, 1f) }
                     .size(bubble)
                     .background(fg, CircleShape),
                 contentAlignment = Alignment.Center,
@@ -1052,6 +1107,21 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
             }
         }
     }
+}
+
+/** Staggered entrance for list rows: fade in while rising a little. Plays once per row (survives scrolling). */
+@Composable
+private fun Modifier.enterAnim(index: Int): Modifier {
+    var shown by rememberSaveable { mutableStateOf(false) }
+    val progress = remember { Animatable(if (shown) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (!shown) {
+            delay(minOf(index, 10) * 28L)
+            progress.animateTo(1f, tween(280, easing = FastOutSlowInEasing))
+            shown = true
+        }
+    }
+    return graphicsLayer { alpha = progress.value; translationY = (1f - progress.value) * 18.dp.toPx() }
 }
 
 // Long-press that wins over the children: watched in the Initial pass (before any clickable inside sees the touch),
