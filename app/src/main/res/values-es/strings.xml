@@ -81,4 +81,5 @@
     <string name="recents">recientes</string>
     <string name="s_recents">apps recientes</string>
     <string name="s_usage">datos de uso…</string>
+    <string name="clear_all">limpiar todo</string>
 </resources>

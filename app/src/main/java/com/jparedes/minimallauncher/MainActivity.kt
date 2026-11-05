@@ -416,6 +416,20 @@ class MainActivity : ComponentActivity() {
 
     private var hidden by mutableStateOf(emptySet<String>())
     private var recents by mutableStateOf(emptyList<App>())
+    private var recentMenu by mutableStateOf<String?>(null) // recent app id whose long-press menu is open
+
+    // Clearing works for both sources: the launcher's own history is edited, and for usage data
+    // we remember "ignore uses before this moment" (whole row, or per app) since system history can't be deleted.
+    private fun dismissRecent(app: App) {
+        val history = prefs.getString("recent", "")!!.split("\n").filter { it.isNotEmpty() && it != app.id }
+        prefs.edit().putString("recent", history.joinToString("\n")).putLong("rd:${app.pkg}", System.currentTimeMillis()).apply()
+        loadRecents()
+    }
+
+    private fun clearRecents() {
+        prefs.edit().putString("recent", "").putLong("recentClearedAt", System.currentTimeMillis()).apply()
+        loadRecents()
+    }
 
     private fun toggle(set: Set<String>, app: App, pref: String) =
         (if (app.id in set) set - app.id else set + app.id).also { prefs.edit().putStringSet(pref, it).apply() }
@@ -427,7 +441,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleFavorite(app: App) = saveFavorites(if (app.id in favorites) favorites - app.id else favorites + app.id)
 
-    private fun resetView() { letter = null; query = null; menuFor = null; widgetMenu = null; choosingWidget = false }
+    private fun resetView() { letter = null; query = null; menuFor = null; widgetMenu = null; choosingWidget = false; recentMenu = null }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -488,12 +502,23 @@ class MainActivity : ComponentActivity() {
                     if (clean && Look.showRecents && recents.isNotEmpty()) Column(Modifier.padding(top = 12.dp)) {
                         BasicText(stringResource(R.string.recents), style = SmallText.copy(fontSize = 12.sp))
                         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                            val haptics = LocalHapticFeedback.current
                             recents.forEach { app ->
                                 Image(
                                     iconOf(app), app.label,
-                                    Modifier.size(34.dp).clickable(interactionSource = null, indication = null) { open(app) },
-                                    alpha = 0.6f, colorFilter = Grayscale,
+                                    Modifier.size(34.dp).combinedClickable(
+                                        interactionSource = null, indication = null,
+                                        onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); recentMenu = app.id },
+                                    ) { open(app) },
+                                    alpha = if (recentMenu == app.id) 1f else 0.6f, colorFilter = Grayscale,
                                 )
+                            }
+                        }
+                        // long-press menu: drop this one, or wipe the row
+                        recents.firstOrNull { it.id == recentMenu }?.let { app ->
+                            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                                MenuItem(stringResource(R.string.remove)) { dismissRecent(app) }
+                                MenuItem(stringResource(R.string.clear_all)) { clearRecents() }
                             }
                         }
                     }
@@ -658,7 +683,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun MenuItem(label: String, onClick: () -> Unit) = BasicText(
         label,
-        Modifier.clickable(interactionSource = null, indication = null) { menuFor = null; widgetMenu = null; choosingWidget = false; onClick() }
+        Modifier.clickable(interactionSource = null, indication = null) { menuFor = null; widgetMenu = null; choosingWidget = false; recentMenu = null; onClick() }
             .padding(vertical = 6.dp),
         style = SmallText,
     )
@@ -931,6 +956,8 @@ class MainActivity : ComponentActivity() {
             @Suppress("DEPRECATION") // == ACTIVITY_RESUMED (API 29) with the same value
             if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND && e.packageName != packageName) last[e.packageName] = e.timeStamp
         }
+        val clearedAt = prefs.getLong("recentClearedAt", 0)
+        last.entries.removeAll { (pkg, time) -> time <= maxOf(clearedAt, prefs.getLong("rd:$pkg", 0)) }
         return last.entries.sortedByDescending { it.value }.map { it.key }
     }
 }

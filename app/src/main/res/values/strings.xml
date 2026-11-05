@@ -81,4 +81,5 @@
     <string name="recents">recent</string>
     <string name="s_recents">recent apps</string>
     <string name="s_usage">usage access…</string>
+    <string name="clear_all">clear all</string>
 </resources>
