@@ -78,4 +78,7 @@
     <string name="s_bar">letter bar</string>
     <string name="s_bar_side">side</string>
     <string name="s_bar_bottom">bottom</string>
+    <string name="recents">recent</string>
+    <string name="s_recents">recent apps</string>
+    <string name="s_usage">usage access…</string>
 </resources>

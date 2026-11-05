@@ -50,6 +50,8 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.provider.MediaStore
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
@@ -402,6 +404,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private var hidden by mutableStateOf(emptySet<String>())
+    private var recents by mutableStateOf(emptyList<App>())
 
     private fun toggle(set: Set<String>, app: App, pref: String) =
         (if (app.id in set) set - app.id else set + app.id).also { prefs.edit().putStringSet(pref, it).apply() }
@@ -470,6 +473,19 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    // Recent apps: small, dimmer icons so they read apart from favorites; only on the clean home view
+                    if (clean && Look.showRecents && recents.isNotEmpty()) Column(Modifier.padding(top = 12.dp)) {
+                        BasicText(stringResource(R.string.recents), style = SmallText.copy(fontSize = 12.sp))
+                        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                            recents.forEach { app ->
+                                Image(
+                                    iconOf(app), app.label,
+                                    Modifier.size(34.dp).clickable(interactionSource = null, indication = null) { open(app) },
+                                    alpha = 0.6f, colorFilter = Grayscale,
+                                )
+                            }
+                        }
+                    }
                     if (Look.barBottom) Box(Modifier.padding(top = 12.dp, end = 20.dp)) {
                         LetterBar(visible.map { it.letter }.distinct(), letter, horizontal = true) { letter = it; query = null; menuFor = null }
                     }
@@ -511,6 +527,7 @@ class MainActivity : ComponentActivity() {
             .filter { it.isNotEmpty() }
             .filter { p -> NativeWidget.of(p) != null || p.removePrefix("w:").toIntOrNull()?.let { widgetManager.getAppWidgetInfo(it) } != null }
         refreshWeather()
+        loadRecents()
         resumes++
     }
 
@@ -840,9 +857,42 @@ class MainActivity : ComponentActivity() {
 
     private fun safeStart(intent: Intent) = runCatching { startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 
-    private fun open(app: App) = safeStart(
-        Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClassName(app.pkg, app.activity)
-    )
+    private fun open(app: App) {
+        safeStart(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClassName(app.pkg, app.activity))
+        // launcher's own history: used for the recents row when usage access isn't granted
+        val history = listOf(app.id) + (prefs.getString("recent", "")!!.split("\n").filter { it.isNotEmpty() && it != app.id })
+        prefs.edit().putString("recent", history.take(12).joinToString("\n")).apply()
+    }
+
+    /**
+     * Last apps used, newest first, without favorites or hidden apps. With usage access granted it's every app
+     * the phone brought to the foreground in the last 3 days; otherwise only what was opened from this launcher.
+     */
+    private fun loadRecents() {
+        val byPkg = apps.associateBy { it.pkg }
+        val byId = apps.associateBy { it.id }
+        val ordered = if (hasUsageAccess()) {
+            recentPackages().mapNotNull { byPkg[it] }
+        } else {
+            prefs.getString("recent", "")!!.split("\n").mapNotNull { byId[it] }
+        }
+        recents = ordered.filter { it.id !in favorites && it.id !in hidden }.distinctBy { it.pkg }.take(5)
+    }
+
+    // ponytail: reads 3 days of usage events on the main thread at each resume; fine at this volume, move off-thread if it stutters
+    private fun recentPackages(): List<String> {
+        val usm = getSystemService(UsageStatsManager::class.java)
+        val now = System.currentTimeMillis()
+        val events = usm.queryEvents(now - 3 * 86_400_000L, now)
+        val last = HashMap<String, Long>()
+        val e = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(e)
+            @Suppress("DEPRECATION") // == ACTIVITY_RESUMED (API 29) with the same value
+            if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND && e.packageName != packageName) last[e.packageName] = e.timeStamp
+        }
+        return last.entries.sortedByDescending { it.value }.map { it.key }
+    }
 }
 
 // A–Z strip: vertical at the right edge, or horizontal above the favorites (settings → letter bar).

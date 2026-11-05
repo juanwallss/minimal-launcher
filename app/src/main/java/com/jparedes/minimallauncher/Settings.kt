@@ -2,6 +2,11 @@ package com.jparedes.minimallauncher
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.app.AppOpsManager
+import android.content.Intent
+import android.os.Build
+import android.os.Process
+import androidx.compose.ui.platform.LocalContext
 import android.text.format.DateFormat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +60,7 @@ internal object Look {
     var clockSize by mutableIntStateOf(1)  // 0 small · 1 medium · 2 large
     var textSize by mutableIntStateOf(1)
     var clock24 by mutableStateOf(true)
+    var showRecents by mutableStateOf(true)
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
 
     /** gesture → action: none · lock · notifications · search · camera · torch · app:<pkg>/<activity> */
@@ -76,13 +82,14 @@ internal object Look {
         textSize = p.getInt("textSize", 1)
         clock24 = p.getBoolean("clock24", DateFormat.is24HourFormat(ctx)) // default follows the phone
         barBottom = p.getBoolean("barBottom", false)
+        showRecents = p.getBoolean("showRecents", true)
         GESTURE_DEFAULTS.forEach { (g, default) -> gestures[g] = p.getString("g_$g", default)!! }
     }
 
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom)
+            .putInt("clockSize", clockSize).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("showRecents", showRecents)
         gestures.forEach { (g, action) -> e.putString("g_$g", action) }
         e.apply()
     }
@@ -145,6 +152,15 @@ fun SettingsScreen(onPickPhoto: () -> Unit, onBackgroundChanged: () -> Unit, app
         Section(stringResource(R.string.s_bar)) {
             Choice(stringResource(R.string.s_bar_side), !Look.barBottom) { set { Look.barBottom = false } }
             Choice(stringResource(R.string.s_bar_bottom), Look.barBottom) { set { Look.barBottom = true } }
+        }
+        Section(stringResource(R.string.s_recents)) {
+            val ctx = LocalContext.current
+            Choice(stringResource(R.string.show), Look.showRecents) { set { Look.showRecents = true } }
+            Choice(stringResource(R.string.hide), !Look.showRecents) { set { Look.showRecents = false } }
+            // optional: with usage access the row also sees apps opened from notifications / links
+            Choice(stringResource(R.string.s_usage), ctx.hasUsageAccess()) {
+                runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }
         }
         Section(stringResource(R.string.s_format)) {
             Choice("24 h", Look.clock24) { set { Look.clock24 = true } }
@@ -224,4 +240,15 @@ private fun DimSlider() {
         }
         BasicText("${Look.dim} %", Modifier.padding(start = 18.dp).width(56.dp), style = RowText.copy(fontSize = 19.sp))
     }
+}
+
+/** Whether the user granted "usage access" (special permission, toggled in system settings). */
+fun Context.hasUsageAccess(): Boolean {
+    val ops = getSystemService(AppOpsManager::class.java)
+    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+    } else {
+        @Suppress("DEPRECATION") ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
+    }
+    return mode == AppOpsManager.MODE_ALLOWED
 }

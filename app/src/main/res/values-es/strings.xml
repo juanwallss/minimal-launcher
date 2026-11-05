@@ -78,4 +78,7 @@
     <string name="s_bar">barra de letras</string>
     <string name="s_bar_side">lateral</string>
     <string name="s_bar_bottom">abajo</string>
+    <string name="recents">recientes</string>
+    <string name="s_recents">apps recientes</string>
+    <string name="s_usage">datos de uso…</string>
 </resources>
