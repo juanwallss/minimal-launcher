@@ -50,6 +50,17 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
+import android.media.AudioManager
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.runtime.mutableIntStateOf
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.provider.MediaStore
@@ -759,14 +770,25 @@ class MainActivity : ComponentActivity() {
                 )
             }
             val date = now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
-            BasicText(
-                date,
-                Modifier.alignInk(date, 16.sp, 400).combinedClickable(
-                    interactionSource = null, indication = null,
-                    onLongClick = { safeStart(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
-                ) { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)) },
-                style = SmallText.copy(fontSize = 16.sp),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicText(
+                    date,
+                    Modifier.alignInk(date, 16.sp, 400).combinedClickable(
+                        interactionSource = null, indication = null,
+                        onLongClick = { safeStart(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                    ) { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)) },
+                    style = SmallText.copy(fontSize = 16.sp),
+                )
+                // sound · vibrate · silent; tap shows the system volume panel (where the mode can be switched)
+                RingerIcon(
+                    ringerMode(), Dim,
+                    Modifier.padding(start = 12.dp).size(26.dp).clip(CircleShape)
+                        .clickable(interactionSource = null, indication = null) {
+                            audio.adjustStreamVolume(AudioManager.STREAM_RING, AudioManager.ADJUST_SAME, AudioManager.FLAG_SHOW_UI)
+                        }
+                        .padding(5.dp),
+                )
+            }
             // battery · next event (tap: grant calendar access, then opens the calendar) · • n notifications
             val (level, charging) = battery()
             val event = remember(now, resumes) { nextEvent() }
@@ -798,6 +820,24 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private val audio by lazy { getSystemService(AudioManager::class.java) }
+
+    /** Current ringer mode, kept live with the system broadcast. */
+    @Composable
+    private fun ringerMode(): Int {
+        var mode by remember { mutableIntStateOf(audio.ringerMode) }
+        DisposableEffect(Unit) {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(c: Context, i: Intent) { mode = audio.ringerMode }
+            }
+            val filter = IntentFilter(AudioManager.RINGER_MODE_CHANGED_ACTION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) registerReceiver(receiver, filter, RECEIVER_EXPORTED)
+            else registerReceiver(receiver, filter)
+            onDispose { unregisterReceiver(receiver) }
+        }
+        return mode
     }
 
     @Composable
@@ -1022,3 +1062,32 @@ private fun Modifier.fadeEdges() = graphicsLayer(compositingStrategy = Compositi
             blendMode = BlendMode.DstIn,
         )
     }
+
+/** Hand-drawn thin bell (sound), bell with a slash (silent), or phone with waves (vibrate) — matches the Jost strokes. */
+@Composable
+private fun RingerIcon(mode: Int, color: Color, modifier: Modifier) = Canvas(modifier) {
+    val w = size.width
+    val h = size.height
+    val stroke = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+    if (mode == AudioManager.RINGER_MODE_VIBRATE) {
+        drawRoundRect(color, Offset(w * 0.34f, h * 0.14f), Size(w * 0.32f, h * 0.72f), CornerRadius(w * 0.06f), style = stroke)
+        listOf(0.16f, 0.06f).forEachIndexed { i, x ->
+            val y0 = h * (0.34f - i * 0.08f); val y1 = h * (0.66f + i * 0.08f)
+            drawLine(color, Offset(w * x + w * 0.04f, y0), Offset(w * x + w * 0.04f, y1), stroke.width, StrokeCap.Round)
+            drawLine(color, Offset(w * (1 - x) - w * 0.04f, y0), Offset(w * (1 - x) - w * 0.04f, y1), stroke.width, StrokeCap.Round)
+        }
+    } else {
+        val bell = Path().apply {
+            moveTo(w * 0.2f, h * 0.72f)
+            lineTo(w * 0.8f, h * 0.72f)
+            quadraticTo(w * 0.7f, h * 0.62f, w * 0.7f, h * 0.45f)
+            cubicTo(w * 0.7f, h * 0.22f, w * 0.3f, h * 0.22f, w * 0.3f, h * 0.45f)
+            quadraticTo(w * 0.3f, h * 0.62f, w * 0.2f, h * 0.72f)
+            close()
+        }
+        drawPath(bell, color, style = stroke)
+        drawLine(color, Offset(w * 0.5f, h * 0.18f), Offset(w * 0.5f, h * 0.24f), stroke.width, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.43f, h * 0.82f), Offset(w * 0.57f, h * 0.82f), stroke.width, StrokeCap.Round)
+        if (mode == AudioManager.RINGER_MODE_SILENT) drawLine(color, Offset(w * 0.18f, h * 0.15f), Offset(w * 0.82f, h * 0.88f), stroke.width, StrokeCap.Round)
+    }
+}
