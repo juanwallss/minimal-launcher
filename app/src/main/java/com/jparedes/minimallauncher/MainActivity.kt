@@ -443,23 +443,24 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun WidgetPage(page: String) {
+    private fun WidgetPage(page: String, compact: Boolean) {
         val haptics = LocalHapticFeedback.current
         val longPress = Modifier.longPressFirst { haptics.performHapticFeedback(HapticFeedbackType.LongPress); widgetMenu = page }
         val calendar = { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)); Unit }
         when (NativeWidget.of(page)) {
             NativeWidget.AGENDA -> Box(longPress) {
                 val events = remember(resumes) { if (hasCalendar()) upcomingEvents(48, 3) else null }
-                AgendaWidget(events, onAsk = { askCalendar.launch(Manifest.permission.READ_CALENDAR) }, onOpen = calendar)
+                AgendaWidget(events, onAsk = { askCalendar.launch(Manifest.permission.READ_CALENDAR) }, onOpen = calendar, compact = compact)
             }
             NativeWidget.MUSIC -> Box(longPress) {
-                MusicWidget(onNeedAccess = { safeStart(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
+                MusicWidget(onNeedAccess = { safeStart(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }, compact = compact)
             }
             NativeWidget.WEATHER -> Box(longPress) {
                 WeatherWidget(
                     hasPermission = hasLocation(), weather = weather, loading = weatherLoading,
                     onAsk = { askLocation.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
                     onRefresh = { refreshWeather(force = true) },
+                    compact = compact,
                 )
             }
             null -> {
@@ -467,8 +468,9 @@ class MainActivity : ComponentActivity() {
                 AndroidView(
                     factory = { ctx ->
                         widgetHost.createView(ctx, id, widgetManager.getAppWidgetInfo(id)).apply {
-                            val w = (resources.displayMetrics.widthPixels / resources.displayMetrics.density).toInt()
-                            @Suppress("DEPRECATION") updateAppWidgetSize(null, w, 200, w, 200)
+                            val w = if (compact) PANEL_W else (resources.displayMetrics.widthPixels / resources.displayMetrics.density).toInt()
+                            val h = if (compact) PANEL_H else 200
+                            @Suppress("DEPRECATION") updateAppWidgetSize(null, w, h, w, h)
                         }
                     },
                     Modifier.fillMaxSize(),
@@ -477,11 +479,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Widget pages in a narrow panel beside the clock; its long-press menu / chooser open in the list area below
     @Composable
-    private fun WidgetArea() {
+    private fun WidgetArea(modifier: Modifier) {
         if (pages.isEmpty()) {
-            if (choosingWidget) WidgetChooser()
-            else BasicText(stringResource(R.string.widget_plus), Modifier.clickable(interactionSource = null, indication = null) { choosingWidget = true }.padding(vertical = 8.dp), style = SmallText)
+            BasicText(stringResource(R.string.widget_plus), modifier.clickable(interactionSource = null, indication = null) { choosingWidget = true }.padding(vertical = 8.dp), style = SmallText)
             return
         }
         val pager = rememberPagerState { pages.size }
@@ -489,22 +491,22 @@ class MainActivity : ComponentActivity() {
         SideEffect {
             pageBy = { d -> scope.launch { pager.animateScrollToPage((pager.currentPage + d).coerceIn(0, pages.lastIndex)) } }
         }
-        Column {
-            // ponytail: fixed page height; tall widgets get clipped — make it per-widget (info.minHeight) if that bites
-            HorizontalPager(pager, Modifier.fillMaxWidth().height(200.dp), pageSpacing = 24.dp, key = { pages[it] }) { WidgetPage(pages[it]) }
-            // page dots
-            if (pages.size > 1) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                repeat(pages.size) { i ->
-                    Box(Modifier.size(5.dp).background(if (i == pager.currentPage) Fg else Dim, CircleShape))
-                }
+        Column(modifier) {
+            HorizontalPager(pager, Modifier.fillMaxWidth().height(PANEL_H.dp), pageSpacing = 16.dp, key = { pages[it] }) { WidgetPage(pages[it], compact = true) }
+            if (pages.size > 1) Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                repeat(pages.size) { i -> Box(Modifier.size(4.dp).background(if (i == pager.currentPage) Fg else Dim, CircleShape)) }
             }
-            when {
-                choosingWidget -> WidgetChooser()
-                widgetMenu != null -> Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                    val page = widgetMenu!!
-                    MenuItem(stringResource(R.string.remove)) { removePage(page) }
-                    MenuItem(stringResource(R.string.add_widget)) { choosingWidget = true }
-                }
+        }
+    }
+
+    @Composable
+    private fun WidgetMenus() {
+        when {
+            choosingWidget -> WidgetChooser()
+            widgetMenu != null -> Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                val page = widgetMenu!!
+                MenuItem(stringResource(R.string.remove)) { removePage(page) }
+                MenuItem(stringResource(R.string.add_widget)) { choosingWidget = true }
             }
         }
     }
@@ -611,7 +613,11 @@ class MainActivity : ComponentActivity() {
             val listPane: @Composable (Modifier) -> Unit = { m ->
                     Box(m) {
                         Crossfade(clean, animationSpec = tween(220), label = "home") { isClean ->
-                            if (isClean) WidgetArea()
+                            if (isClean) Column {
+                                WidgetMenus()
+                                val favs = favorites.mapNotNull { id -> apps.find { it.id == id } }
+                                if (!choosingWidget) LazyColumn(Modifier.fadeEdges()) { items(favs, key = { it.id }) { AppRow(it) } }
+                            }
                             else key(letter, q == null) { // fresh scroll position (and entrance animation) per letter / search
                                 val openedAt = remember { SystemClock.uptimeMillis() }
                                 LazyColumn(Modifier.fadeEdges()) {
@@ -666,7 +672,11 @@ class MainActivity : ComponentActivity() {
             val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 if (!wide) Column(Modifier.weight(1f).then(homeGesturesMod).padding(start = 36.dp, top = 40.dp)) {
-                    Clock()
+                    // clock and the widget panel share the top row; the clock is capped so both fit
+                    Row {
+                        Box(Modifier.weight(1f)) { Clock(bottomGap = 28.dp, maxSp = 64f) }
+                        WidgetArea(Modifier.padding(start = 12.dp, end = 4.dp).width(PANEL_W.dp))
+                    }
                     if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
                     messageCard()
                     listPane(Modifier.weight(1f))
@@ -677,6 +687,7 @@ class MainActivity : ComponentActivity() {
                     // landscape: clock and recents on the left; widgets / list / search on the right
                     Column(Modifier.weight(1f).fillMaxHeight()) {
                         Clock(bottomGap = 12.dp, maxSp = 88f)
+                        WidgetArea(Modifier.width((PANEL_W * 1.4f).dp))
                         Spacer(Modifier.weight(1f))
                         recentsRow()
                         bottomBar()
@@ -1114,6 +1125,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+internal const val PANEL_W = 150 // widget panel beside the clock, dp
+internal const val PANEL_H = 140
 internal const val STAR = "★" // bar entry that lists the favorites
 
 /** Thin five-pointed star outline (the favorites entry of the letter bar). */

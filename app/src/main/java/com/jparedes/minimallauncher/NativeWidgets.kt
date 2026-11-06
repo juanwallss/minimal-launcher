@@ -135,13 +135,13 @@ fun Context.upcomingEvents(hours: Int, limit: Int): List<CalEvent> {
 
 /** [events] null = no calendar permission yet. */
 @Composable
-fun AgendaWidget(events: List<CalEvent>?, onAsk: () -> Unit, onOpen: () -> Unit) {
+fun AgendaWidget(events: List<CalEvent>?, onAsk: () -> Unit, onOpen: () -> Unit, compact: Boolean = false) {
     Column(Modifier.fillMaxSize().tap(if (events == null) onAsk else onOpen)) {
         Header(stringResource(R.string.widget_agenda))
         when {
             events == null -> Hint(stringResource(R.string.agenda_ask), onAsk)
             events.isEmpty() -> BasicText(stringResource(R.string.agenda_empty), style = SmallText)
-            else -> events.forEach { e ->
+            else -> events.take(if (compact) 2 else 3).forEach { e ->
                 val today = LocalDate.now()
                 val starts = e.begin.toLocalDate()
                 val day = when {
@@ -150,9 +150,9 @@ fun AgendaWidget(events: List<CalEvent>?, onAsk: () -> Unit, onOpen: () -> Unit)
                     else -> e.begin.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).lowercase()
                 }
                 val time = if (e.allDay) stringResource(R.string.all_day) else e.begin.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase()
-                Column(Modifier.padding(bottom = 10.dp)) {
-                    BasicText(e.title.ifBlank { stringResource(R.string.untitled) }, style = RowText.copy(fontSize = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    BasicText("$day · $time", style = SmallText.copy(fontSize = 13.sp))
+                Column(Modifier.padding(bottom = if (compact) 8.dp else 10.dp)) {
+                    BasicText(e.title.ifBlank { stringResource(R.string.untitled) }, style = RowText.copy(fontSize = if (compact) 15.sp else 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    BasicText("$day · $time", style = SmallText.copy(fontSize = if (compact) 12.sp else 13.sp), maxLines = 1)
                 }
             }
         }
@@ -221,7 +221,7 @@ fun rememberMediaNow(): MediaNow {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MusicWidget(onNeedAccess: () -> Unit) {
+fun MusicWidget(onNeedAccess: () -> Unit, compact: Boolean = false) {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE) }
     val media = rememberMediaNow()
@@ -248,6 +248,33 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
                 Header(stringResource(R.string.widget_music))
                 BasicText(stringResource(R.string.music_nothing), style = SmallText)
                 prefs.getString("lastPlayer", null)?.let { pkg -> appLabel(pkg)?.let { Hint(stringResource(R.string.music_open, it), onClick = { openApp(pkg) }) } }
+            }
+            compact -> {
+                // narrow panel beside the clock: cover, title / artist, and the three controls — no progress bar
+                val art = remember(meta) {
+                    (meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                        ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))?.asImageBitmap()
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.tap { openApp(c.packageName) }) {
+                    if (art != null) {
+                        Image(art, null, Modifier.size(40.dp).clip(RoundedCornerShape(5.dp)), contentScale = ContentScale.Crop, colorFilter = Grayscale)
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Column(Modifier.weight(1f)) {
+                        BasicText(title.lowercase(), Modifier.basicMarquee(), style = RowText.copy(fontSize = 15.sp), maxLines = 1)
+                        val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+                        artist?.let { BasicText(it.lowercase(), style = SmallText.copy(fontSize = 12.sp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    }
+                }
+                val controls = c.transportControls
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    PlayerIcon("prev", Fg, Modifier.size(36.dp).clip(CircleShape).tap { controls.skipToPrevious() }.padding(9.dp))
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape).border(1.dp, Fg, CircleShape).tap { if (playing) controls.pause() else controls.play() },
+                        contentAlignment = Alignment.Center,
+                    ) { PlayerIcon(if (playing) "pause" else "play", Fg, Modifier.size(20.dp)) }
+                    PlayerIcon("next", Fg, Modifier.size(36.dp).clip(CircleShape).tap { controls.skipToNext() }.padding(9.dp))
+                }
             }
             else -> {
                 // cover + title / artist · app
@@ -411,12 +438,17 @@ suspend fun Context.fetchWeather(): Weather? = withContext(Dispatchers.IO) {
 
 /** [weather] null + [loading] = fetching; null + !loading = failed. */
 @Composable
-fun WeatherWidget(hasPermission: Boolean, weather: Weather?, loading: Boolean, onAsk: () -> Unit, onRefresh: () -> Unit) {
+fun WeatherWidget(hasPermission: Boolean, weather: Weather?, loading: Boolean, onAsk: () -> Unit, onRefresh: () -> Unit, compact: Boolean = false) {
     Column(Modifier.fillMaxSize().tap(if (hasPermission) onRefresh else onAsk)) {
         Header(stringResource(R.string.widget_weather))
         when {
             !hasPermission -> Hint(stringResource(R.string.weather_ask), onAsk)
             weather == null -> BasicText(stringResource(if (loading) R.string.loading else R.string.weather_failed), style = SmallText)
+            compact -> {
+                BasicText("${weather.temp}°", style = RowText.copy(fontSize = 48.sp, fontWeight = FontWeight.Thin))
+                BasicText(stringResource(weatherWord(weather.code)), style = RowText.copy(fontSize = 15.sp), maxLines = 1)
+                BasicText(stringResource(R.string.weather_range, weather.max, weather.min), style = SmallText.copy(fontSize = 12.sp))
+            }
             else -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     BasicText("${weather.temp}°", style = RowText.copy(fontSize = 64.sp, fontWeight = FontWeight.Thin))
