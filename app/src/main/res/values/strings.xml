@@ -76,7 +76,7 @@
     <string name="g_app">app…</string>
     <string name="cancel">cancel</string>
     <string name="s_bar">letter bar</string>
-    <string name="s_bar_side">side</string>
+    <string name="s_bar_side">right</string>
     <string name="s_bar_bottom">bottom</string>
     <string name="recents">recent</string>
     <string name="s_recents">recent apps</string>
@@ -127,4 +127,17 @@
     <string name="msg_reply">reply</string>
     <string name="msg_sent">sent ✓</string>
     <string name="s_widgets">widgets</string>
+    <string name="st_analog">analog</string>
+    <string name="st_stack">stacked</string>
+    <string name="st_progress">day progress</string>
+    <string name="st_binary">binary</string>
+    <string name="s_bar_left">left</string>
+    <string name="s_theme">theme</string>
+    <string name="th_none">neutral</string>
+    <string name="th_wall">wallpaper</string>
+    <string name="th_amber">amber</string>
+    <string name="th_sage">sage</string>
+    <string name="th_sea">sea</string>
+    <string name="th_rose">rose</string>
+    <string name="th_lilac">lilac</string>
 </resources>

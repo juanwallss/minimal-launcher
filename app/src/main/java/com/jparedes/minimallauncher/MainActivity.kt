@@ -47,6 +47,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
 import android.os.Build
+import androidx.compose.ui.platform.LocalContext
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
@@ -191,7 +192,29 @@ data class App(val label: String, val pkg: String, val activity: String) {
 
 // Palette / type — tweak here
 // Follows the phone's dark mode: warm off-white on near-black, or the inverse by day
-internal val Bg @Composable get() = if (isSystemInDarkTheme()) Color(0xFF0A0A0A) else Color(0xFFF4F2EE)
+internal val Bg @Composable get(): Color {
+    val base = if (isSystemInDarkTheme()) Color(0xFF0A0A0A) else Color(0xFFF4F2EE)
+    return if (Look.theme == Look.THEME_NONE) base else androidx.compose.ui.graphics.lerp(base, Accent, 0.06f) // faint tint of the theme
+}
+/** Theme accent (settings → appearance → theme): clock, chosen letter, bubble, underlines. Plain [Fg] when no theme. */
+internal val Accent @Composable get(): Color {
+    val dark = isSystemInDarkTheme()
+    val ctx = LocalContext.current
+    val raw = when (val t = Look.theme) {
+        Look.THEME_NONE -> null
+        // wallpaper: the launcher's own photo, else the phone's wallpaper (Material You palette on Android 12+)
+        Look.THEME_WALL -> Look.photoAccent?.takeIf { Look.background == Look.BG_PHOTO }
+            ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) ctx.getColor(android.R.color.system_accent1_200)
+            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) android.app.WallpaperManager.getInstance(ctx).getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM)?.primaryColor?.toArgb()
+            else null
+        else -> Look.THEMES[t]
+    } ?: return Fg
+    // same lightness for every source: bright and soft on dark, deeper on light
+    val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(raw, it) }
+    hsv[1] = hsv[1].coerceIn(0.3f, 0.55f)
+    hsv[2] = if (dark) 0.88f else 0.5f
+    return Color(android.graphics.Color.HSVToColor(hsv))
+}
 internal val Fg @Composable get() = if (isSystemInDarkTheme()) Color(0xFFE8E6E1) else Color(0xFF1C1B1A)
 internal val Dim @Composable get() = when {
     Look.background == Look.BG_NONE -> if (isSystemInDarkTheme()) Color(0xFF6B6965) else Color(0xFF8E8B86)
@@ -247,7 +270,7 @@ class MainActivity : ComponentActivity() {
     private val pickPhoto = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null) return@registerForActivityResult
         lifecycleScope.launch {
-            val bmp = withContext(Dispatchers.IO) { runCatching { importBackground(uri) }.getOrNull() }
+            val bmp = withContext(Dispatchers.IO) { runCatching { importBackground(uri) }.getOrNull()?.also { Look.photoAccent = photoAccent(it) } }
             if (bmp != null) {
                 bgImage = bmp.asImageBitmap()
                 Look.background = Look.BG_PHOTO; Look.save()
@@ -292,6 +315,10 @@ class MainActivity : ComponentActivity() {
         // debug: --ei clock_style <0..3> previews a clock face without saving it (Home press keeps it until restart)
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("clock_style"))
             Look.clockStyle = intent.getIntExtra("clock_style", 0)
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            intent.getStringExtra("theme")?.let { Look.theme = it }
+            if (intent.hasExtra("bar_left")) Look.barLeft = intent.getBooleanExtra("bar_left", false)
+        }
         // debug: --ez msg_test true shows a fake chat in the message card (gone with the next real notification change)
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.getBooleanExtra("msg_test", false)) {
             val pi = android.app.PendingIntent.getBroadcast(this, 0, Intent("test.noop").setPackage(packageName), android.app.PendingIntent.FLAG_MUTABLE)
@@ -496,7 +523,7 @@ class MainActivity : ComponentActivity() {
             // page dots
             if (pages.size > 1) Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 repeat(pages.size) { i ->
-                    Box(Modifier.size(5.dp).background(if (i == pager.currentPage) Fg else Dim, CircleShape))
+                    Box(Modifier.size(5.dp).background(if (i == pager.currentPage) Accent else Dim, CircleShape))
                 }
             }
             when {
@@ -551,7 +578,7 @@ class MainActivity : ComponentActivity() {
         runCatching { cameraManager.registerTorchCallback(torchCallback, null) }
         applyWindowBackground()
         if (Look.background == Look.BG_PHOTO) lifecycleScope.launch {
-            bgImage = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(bgFile.path)?.asImageBitmap() }
+            bgImage = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(bgFile.path)?.also { Look.photoAccent = photoAccent(it) }?.asImageBitmap() }
         }
         setContent {
             BackHandler { // home screen never exits
@@ -671,7 +698,9 @@ class MainActivity : ComponentActivity() {
             val homeGesturesMod = if (clean) Modifier.pointerInput(Unit) { homeGestures() } else Modifier
             val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                if (!wide) Column(Modifier.weight(1f).then(homeGesturesMod).padding(start = 36.dp, top = 40.dp)) {
+                if (Look.barLeft && !Look.barBottom) LetterBar(barLetters, letter, left = true) { letter = it; query = null; menuFor = null }
+                val side = if (Look.barLeft && !Look.barBottom) Modifier.padding(start = 8.dp, end = 20.dp) else Modifier.padding(start = 36.dp)
+                if (!wide) Column(Modifier.weight(1f).then(homeGesturesMod).then(side).padding(top = 40.dp)) {
                     Clock()
                     if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
                     messageCard()
@@ -679,7 +708,7 @@ class MainActivity : ComponentActivity() {
                     recentsRow()
                     bottomBar()
                     Spacer(Modifier.height(28.dp))
-                } else Row(Modifier.weight(1f).then(homeGesturesMod).padding(start = 36.dp, top = 20.dp)) {
+                } else Row(Modifier.weight(1f).then(homeGesturesMod).then(side).padding(top = 20.dp)) {
                     // landscape: clock and recents on the left; widgets / list / search on the right
                     Column(Modifier.weight(1f).fillMaxHeight()) {
                         Clock(bottomGap = 12.dp, maxSp = 88f)
@@ -694,7 +723,7 @@ class MainActivity : ComponentActivity() {
                         listPane(Modifier.weight(1f))
                     }
                 }
-                if (!Look.barBottom) LetterBar(barLetters, letter) { letter = it; query = null; menuFor = null }
+                if (!Look.barBottom && !Look.barLeft) LetterBar(barLetters, letter) { letter = it; query = null; menuFor = null }
             }
             } // home
             } // settings ↔ home
@@ -925,7 +954,7 @@ class MainActivity : ComponentActivity() {
             )
             // line under it: the date (DAY also carries the time; SPLIT already shows time/date/temp in its band)
             val date = when (style) {
-                ClockStyle.DAY -> "$timeText  ·  ${shortDate.lowercase()}"
+                ClockStyle.DAY, ClockStyle.BINARY -> "$timeText  ·  ${shortDate.lowercase()}"
                 ClockStyle.SPLIT -> ""
                 else -> now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
             }
@@ -1120,6 +1149,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** Main color of a photo (for the wallpaper theme), or null before Android 8.1. */
+private fun photoAccent(bmp: android.graphics.Bitmap): Int? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) runCatching { android.app.WallpaperColors.fromBitmap(bmp).primaryColor.toArgb() }.getOrNull() else null
+
 internal const val STAR = "★" // bar entry that lists the favorites
 
 /** Thin five-pointed star outline (the favorites entry of the letter bar). */
@@ -1141,7 +1174,7 @@ private fun StarIcon(color: Color, modifier: Modifier) = Canvas(modifier) {
 // A–Z strip: vertical at the right edge, or horizontal above the favorites (settings → letter bar).
 // Tap or slide along it to pick a letter; while touching, a bubble with the letter follows the finger.
 @Composable
-private fun LetterBar(letters: List<String>, selected: String?, horizontal: Boolean = false, onSelect: (String) -> Unit) {
+private fun LetterBar(letters: List<String>, selected: String?, horizontal: Boolean = false, left: Boolean = false, onSelect: (String) -> Unit) {
     val haptics = LocalHapticFeedback.current
     var touch by remember { mutableStateOf<Float?>(null) } // finger position along the strip, null when not touching
     // landscape leaves ~380dp of height for ~22 letters: smaller margins and letters so they all fit
@@ -1185,6 +1218,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
         }
     }
     val fg = Fg
+    val accent = Accent
     val dim = Dim
     val shadow = TextShadow
     var stripLen by remember { mutableFloatStateOf(0f) }
@@ -1192,7 +1226,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
     fun Letter(l: String, i: Int) {
         val on = l == selected
         val scale by animateFloatAsState(if (on) 1.55f else 1f, spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow), label = "letter")
-        val base by animateColorAsState(if (on) fg else dim, tween(160), label = "letterColor")
+        val base by animateColorAsState(if (on) accent else dim, tween(160), label = "letterColor")
         // Bend: letters near the finger lean toward the screen (left for the side bar, up for the bottom one),
         // falling off smoothly (gaussian over ~2–3 letters) and easing back when the finger lifts.
         val t = touch
@@ -1205,7 +1239,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
         val bent = Modifier.graphicsLayer {
             val s = scale * (1f + 0.18f * bend)
             scaleX = s; scaleY = s
-            if (horizontal) translationY = -bend * 14.dp.toPx() else translationX = -bend * 24.dp.toPx()
+            if (horizontal) translationY = -bend * 14.dp.toPx() else translationX = (if (left) bend else -bend) * 24.dp.toPx()
         }
         val color = if (on) base else androidx.compose.ui.graphics.lerp(base, fg, 0.55f * bend)
         if (l == STAR) StarIcon(color, bent.size(if (tight && !horizontal) 10.dp else 12.dp))
@@ -1258,7 +1292,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
                             IntOffset((lastPos - b / 2).toInt(), (fromY + (toY - fromY) * p).toInt())
                         } else {
                             val fromX = (44.dp.toPx() - b) / 2         // centered on the strip
-                            val toX = -(b + 28.dp.toPx())              // resting spot left of it
+                            val toX = if (left) 44.dp.toPx() + 28.dp.toPx() else -(b + 28.dp.toPx()) // resting spot beside it, toward the screen
                             IntOffset((fromX + (toX - fromX) * p).toInt(), (lastPos + top.toPx() - b / 2).toInt())
                         }
                     }
@@ -1269,7 +1303,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
                         alpha = p.coerceIn(0f, 1f)
                     }
                     .requiredSize(bubble) // the strip is only 44dp wide / 40dp tall: plain size() got squashed into an oval
-                    .background(fg, CircleShape),
+                    .background(accent, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 if (shown == STAR) StarIcon(Bg, Modifier.size(26.dp))

@@ -25,6 +25,7 @@ Launcher de Android minimalista: un reloj, una barra de letras y nada más. Icon
 
 - Las **apps ocultas** no salen en la lista ni en la barra, pero sí en la búsqueda (en gris); desde su menú puedes volver a mostrarlas.
 - Un **•** junto a una app indica que tiene notificaciones.
+- **Personalizar** (mantener pulsada la hora → apariencia): estilo de reloj (fino, grueso, día, partido, analógico, apilado, progreso del día, binario), **tema** (un color de acento: neutro, tomado del fondo de pantalla, ámbar, salvia, mar, rosa o lila), fondo y tamaños. En *inicio* la barra de letras puede ir a la derecha, a la izquierda (zurdos) o abajo.
 
 ## Permisos opcionales
 

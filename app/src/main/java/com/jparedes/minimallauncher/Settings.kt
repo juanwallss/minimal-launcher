@@ -42,6 +42,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
@@ -102,6 +104,14 @@ internal object Look {
     var workAddress by mutableStateOf("")
     var driveContacts by mutableStateOf(emptyList<DriveContact>())
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
+    var barLeft by mutableStateOf(false)   // side bar on the left edge (left-handed)
+
+    // theme = one accent color (+ a faint tint of the background): none, from the wallpaper, or a preset
+    const val THEME_NONE = "none"
+    const val THEME_WALL = "wall"
+    val THEMES = linkedMapOf("amber" to 0xFFE0A15A.toInt(), "sage" to 0xFF9DB89A.toInt(), "sea" to 0xFF7FA7C9.toInt(), "rose" to 0xFFD99AA5.toInt(), "lilac" to 0xFFAFA0D9.toInt())
+    var theme by mutableStateOf(THEME_NONE)
+    var photoAccent by mutableStateOf<Int?>(null) // main color of the launcher's photo background, set when it loads
 
     /** gesture → action: none · lock · notifications · search · camera · torch · app:<pkg>/<activity> */
     val GESTURE_DEFAULTS = linkedMapOf("double" to "lock", "up" to "search", "down" to "notifications", "left" to "none", "right" to "none")
@@ -123,6 +133,8 @@ internal object Look {
         textSize = p.getInt("textSize", 1)
         clock24 = p.getBoolean("clock24", DateFormat.is24HourFormat(ctx)) // default follows the phone
         barBottom = p.getBoolean("barBottom", false)
+        barLeft = p.getBoolean("barLeft", false)
+        theme = p.getString("theme", THEME_NONE)!!
         showRecents = p.getBoolean("showRecents", true)
         showMessages = p.getBoolean("showMessages", true)
         showWidgets = p.getBoolean("showWidgets", false)
@@ -138,7 +150,7 @@ internal object Look {
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
+            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
@@ -166,13 +178,24 @@ private fun SectionLabel(title: String) = BasicText(title, style = SmallText.cop
 /** Text option; the chosen one is bright with a thin underline. */
 @Composable
 private fun Choice(label: String, selected: Boolean, onClick: () -> Unit) {
-    val line = Fg
+    val line = Accent
     BasicText(
         label,
         Modifier.clickable(interactionSource = null, indication = null, onClick = onClick).padding(vertical = 4.dp)
             .drawBehind { if (selected) drawLine(line, Offset(0f, size.height + 2.dp.toPx()), Offset(size.width, size.height + 2.dp.toPx()), 1.dp.toPx()) },
         style = RowText.copy(fontSize = 19.sp, color = if (selected) Fg else Dim),
     )
+}
+
+/** A theme option: small color dot + name. The wallpaper one shows the color it picked once chosen. */
+@Composable
+private fun ThemeChoice(label: String, key: String, swatch: Color?, set: (() -> Unit) -> Unit) {
+    val on = Look.theme == key
+    val dot = swatch ?: if (on) Accent else null
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (dot != null) Box(Modifier.padding(end = 8.dp).size(9.dp).background(dot, CircleShape))
+        Choice(label, on) { set { Look.theme = key } }
+    }
 }
 
 private enum class SettingsPage { APPEARANCE, HOME, GESTURES, DRIVE, PERMISSIONS }
@@ -278,7 +301,7 @@ private fun Categories(apps: List<App>, resumeTick: Int, open: (SettingsPage) ->
         SettingsPage.APPEARANCE to listOfNotNull(stringResource(ClockStyle.entries.getOrElse(Look.clockStyle) { ClockStyle.THIN }.label), bg, if (Look.background != Look.BG_NONE) "${Look.dim} %" else null,
             stringResource(R.string.s_clock) + " " + sizes[Look.clockSize], if (Look.clock24) "24 h" else "12 h").joinToString("  ·  "),
         SettingsPage.HOME to listOf(
-            stringResource(R.string.s_bar) + " " + stringResource(if (Look.barBottom) R.string.s_bar_bottom else R.string.s_bar_side),
+            stringResource(R.string.s_bar) + " " + stringResource(if (Look.barBottom) R.string.s_bar_bottom else if (Look.barLeft) R.string.s_bar_left else R.string.s_bar_side),
             stringResource(R.string.s_recents) + " " + stringResource(if (Look.showRecents) R.string.s_on else R.string.s_off),
             stringResource(R.string.s_messages) + " " + stringResource(if (Look.showMessages) R.string.s_on else R.string.s_off),
             stringResource(R.string.s_widgets) + " " + stringResource(if (Look.showWidgets) R.string.s_on else R.string.s_off),
@@ -329,6 +352,12 @@ private fun AppearancePage(set: (() -> Unit) -> Unit, onPickPhoto: () -> Unit, o
     Section(stringResource(R.string.s_clock_style)) {
         ClockStyle.entries.forEach { st -> Choice(stringResource(st.label), Look.clockStyle == st.ordinal) { set { Look.clockStyle = st.ordinal } } }
     }
+    Section(stringResource(R.string.s_theme)) {
+        ThemeChoice(stringResource(R.string.th_none), Look.THEME_NONE, null, set)
+        ThemeChoice(stringResource(R.string.th_wall), Look.THEME_WALL, null, set)
+        val names = mapOf("amber" to R.string.th_amber, "sage" to R.string.th_sage, "sea" to R.string.th_sea, "rose" to R.string.th_rose, "lilac" to R.string.th_lilac)
+        Look.THEMES.forEach { (key, argb) -> ThemeChoice(stringResource(names.getValue(key)), key, Color(argb), set) }
+    }
     Section(stringResource(R.string.s_clock)) {
         sizes.forEachIndexed { i, label -> Choice(label, Look.clockSize == i) { set { Look.clockSize = i } } }
     }
@@ -368,7 +397,7 @@ private fun Preview(background: ImageBitmap?) {
             val short = now.format(java.time.format.DateTimeFormatter.ofPattern("d MMM")).trimEnd('.')
             ClockFace(style, now, Look.clockSp * 0.55f, band = listOf(time.uppercase(), short.uppercase()))
             val line = when (style) {
-                ClockStyle.DAY -> "$time  ·  ${short.lowercase()}"
+                ClockStyle.DAY, ClockStyle.BINARY -> "$time  ·  ${short.lowercase()}"
                 ClockStyle.SPLIT -> ""
                 else -> now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
             }
@@ -380,7 +409,8 @@ private fun Preview(background: ImageBitmap?) {
 @Composable
 private fun HomePage(set: (() -> Unit) -> Unit) {
     Section(stringResource(R.string.s_bar)) {
-        Choice(stringResource(R.string.s_bar_side), !Look.barBottom) { set { Look.barBottom = false } }
+        Choice(stringResource(R.string.s_bar_side), !Look.barBottom && !Look.barLeft) { set { Look.barBottom = false; Look.barLeft = false } }
+        Choice(stringResource(R.string.s_bar_left), !Look.barBottom && Look.barLeft) { set { Look.barBottom = false; Look.barLeft = true } }
         Choice(stringResource(R.string.s_bar_bottom), Look.barBottom) { set { Look.barBottom = true } }
     }
     Section(stringResource(R.string.s_recents)) {

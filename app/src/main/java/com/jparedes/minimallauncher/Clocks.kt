@@ -35,7 +35,21 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import java.time.LocalDateTime
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -45,6 +59,10 @@ enum class ClockStyle(val label: Int) {
     BOLD(R.string.st_bold),    // heavy, tight digits
     DAY(R.string.st_day),      // huge weekday "Mon." — time and date go to the line below
     SPLIT(R.string.st_split),  // wide spaced weekday cut by a band holding time · date · temperature
+    ANALOG(R.string.st_analog),     // thin ring with two hands
+    STACK(R.string.st_stack),       // heavy hours over hairline minutes
+    PROGRESS(R.string.st_progress), // thin time + a line showing how much of the day has gone
+    BINARY(R.string.st_binary),     // one column of dots per digit (8·4·2·1), the time in words goes to the line below
 }
 
 /**
@@ -70,7 +88,7 @@ fun Modifier.alignInk(text: String, size: TextUnit, weight: Int): Modifier {
  */
 @Composable
 fun ClockFace(style: ClockStyle, now: LocalDateTime, sp: Float, band: List<String>, actions: Modifier = Modifier) {
-    val color = Fg
+    val color = Accent
     when (style) {
         ClockStyle.THIN, ClockStyle.BOLD -> Row(verticalAlignment = Alignment.Bottom) {
             val time = now.format(DateTimeFormatter.ofPattern(if (Look.clock24) "HH:mm" else "h:mm"))
@@ -132,6 +150,74 @@ fun ClockFace(style: ClockStyle, now: LocalDateTime, sp: Float, band: List<Strin
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     band.forEach { BasicText(it, style = SmallText.copy(color = color, fontSize = (sp * 0.17f).coerceIn(11f, 18f).sp, letterSpacing = 2.sp)) }
+                }
+            }
+        }
+
+        ClockStyle.ANALOG -> {
+            val dim = Dim
+            Canvas(Modifier.padding(vertical = 8.dp).size((sp * 1.5f).dp).then(actions)) {
+                val c = center
+                val r = size.minDimension / 2 - 1.dp.toPx()
+                fun at(turns: Float, len: Float): Offset {
+                    val a = turns * 2 * PI.toFloat() - PI.toFloat() / 2
+                    return c + Offset(cos(a) * len, sin(a) * len)
+                }
+                drawCircle(dim.copy(alpha = 0.5f), r, c, style = Stroke(1.dp.toPx()))
+                for (k in 0 until 12) if (k % 3 == 0) drawLine(dim, at(k / 12f, r - 7.dp.toPx()), at(k / 12f, r - 2.dp.toPx()), 1.dp.toPx(), StrokeCap.Round)
+                val min = now.minute + now.second / 60f
+                drawLine(color, c, at((now.hour % 12 + min / 60f) / 12f, r * 0.5f), 3.dp.toPx(), StrokeCap.Round)
+                drawLine(color, c, at(min / 60f, r * 0.86f), 1.2.dp.toPx(), StrokeCap.Round)
+                drawCircle(color, 3.dp.toPx(), c)
+            }
+        }
+
+        ClockStyle.STACK -> {
+            val h = now.format(DateTimeFormatter.ofPattern(if (Look.clock24) "HH" else "h"))
+            val m = now.format(DateTimeFormatter.ofPattern("mm"))
+            val big = sp * 1.1f
+            val tight = TextStyle(color = color, fontSize = big.sp, fontFamily = Thin, shadow = TextShadow)
+            // the font's line box is much taller than its digits: give each line only the digit height
+            val digitBox = Modifier.layout { m, c ->
+                val p = m.measure(c.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+                val h = (big * 0.78f).sp.roundToPx()
+                layout(p.width, h) { p.place(0, h - p[FirstBaseline]) } // baseline sits on the bottom edge
+            }
+            Column(actions.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy((big * 0.08f).dp)) {
+                BasicText(h, Modifier.alignInk(h, big.sp, 900).then(digitBox), style = tight.copy(fontWeight = FontWeight.Black, letterSpacing = (-big * 0.04f).sp))
+                BasicText(m, Modifier.alignInk(m, big.sp, 100).then(digitBox), style = tight.copy(fontWeight = FontWeight.Thin))
+            }
+        }
+
+        ClockStyle.PROGRESS -> Column {
+            ClockFace(ClockStyle.THIN, now, sp, band, actions)
+            val f = (now.hour * 60 + now.minute) / 1440f
+            val dim = Dim
+            Row(Modifier.padding(top = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Canvas(Modifier.width((sp * 2.4f).dp).height(8.dp)) {
+                    val y = size.height / 2
+                    val x = size.width * f
+                    drawLine(dim.copy(alpha = 0.5f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+                    drawLine(color, Offset(0f, y), Offset(x, y), 1.dp.toPx())
+                    drawCircle(color, 3.5.dp.toPx(), Offset(x, y))
+                }
+                BasicText("${(f * 100).roundToInt()} %", Modifier.padding(start = 12.dp), style = SmallText.copy(fontSize = 13.sp))
+            }
+        }
+
+        ClockStyle.BINARY -> {
+            val digits = now.format(DateTimeFormatter.ofPattern(if (Look.clock24) "HHmm" else "hhmm")).map { it - '0' }
+            val off = Dim.copy(alpha = 0.25f)
+            val d = (sp * 0.13f).dp                                // dot size
+            val cols = listOf(0f, 2.2f, 6.4f, 8.6f)                // hours pair, gap, minutes pair (in dots)
+            Canvas(Modifier.padding(vertical = 10.dp).size(d * 9.6f, d * 7.6f).then(actions)) {
+                val u = d.toPx()
+                digits.forEachIndexed { i, digit ->
+                    for (row in 0 until 4) {
+                        val bit = 3 - row                          // top row = 8
+                        val on = digit shr bit and 1 == 1
+                        drawCircle(if (on) color else off, u / 2, Offset(cols[i] * u + u / 2, row * 2.2f * u + u / 2))
+                    }
                 }
             }
         }
