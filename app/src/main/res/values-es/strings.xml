@@ -82,4 +82,21 @@
     <string name="s_recents">apps recientes</string>
     <string name="s_usage">datos de uso…</string>
     <string name="clear_all">limpiar todo</string>
+    <string name="drive_title">manejando</string>
+    <string name="drive_exit">salir</string>
+    <string name="drive_home">casa</string>
+    <string name="drive_work">trabajo</string>
+    <string name="drive_map">mapa</string>
+    <string name="drive_dial">marcar</string>
+    <string name="s_drive">modo de manejo</string>
+    <string name="s_car">auto (se activa solo al conectarse)</string>
+    <string name="s_car_pick">elegir auto…</string>
+    <string name="s_home_addr">dirección de casa</string>
+    <string name="s_work_addr">dirección del trabajo</string>
+    <string name="s_contacts">contactos</string>
+    <string name="s_add_contact">+ contacto</string>
+    <string name="s_drive_now">probar</string>
+    <string name="s_try">activar ahora</string>
+    <string name="s_addr_hint">calle, ciudad</string>
+    <string name="g_drive">modo manejo</string>
 </resources>

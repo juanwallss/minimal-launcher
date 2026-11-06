@@ -82,4 +82,21 @@
     <string name="s_recents">recent apps</string>
     <string name="s_usage">usage access…</string>
     <string name="clear_all">clear all</string>
+    <string name="drive_title">driving</string>
+    <string name="drive_exit">exit</string>
+    <string name="drive_home">home</string>
+    <string name="drive_work">work</string>
+    <string name="drive_map">map</string>
+    <string name="drive_dial">dial</string>
+    <string name="s_drive">driving mode</string>
+    <string name="s_car">car (starts by itself when it connects)</string>
+    <string name="s_car_pick">choose car…</string>
+    <string name="s_home_addr">home address</string>
+    <string name="s_work_addr">work address</string>
+    <string name="s_contacts">contacts</string>
+    <string name="s_add_contact">+ contact</string>
+    <string name="s_drive_now">try it</string>
+    <string name="s_try">start now</string>
+    <string name="s_addr_hint">street, city</string>
+    <string name="g_drive">driving mode</string>
 </resources>

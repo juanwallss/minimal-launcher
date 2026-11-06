@@ -50,6 +50,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
+import android.provider.ContactsContract
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -281,9 +282,52 @@ class MainActivity : ComponentActivity() {
             intent.getIntExtra("wx_test", 0) else null
         moonTestPhase = if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("moon"))
             intent.getFloatExtra("moon", 0f) else null
+        // debug: --ez drive true|false switches driving mode
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("drive"))
+            Drive.set(this, intent.getBooleanExtra("drive", false))
     }
     private var weatherTestCode by mutableStateOf<Int?>(null)
     private var moonTestPhase by mutableStateOf<Float?>(null) // debug: --ef moon <0..1> forces night + that phase
+
+    // --- Driving mode helpers
+    private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { Drive.permTick++ }
+
+    /** Contact picker on phone numbers: the returned row is readable without READ_CONTACTS. */
+    private val pickPhone = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data ?: return@registerForActivityResult
+        runCatching {
+            contentResolver.query(uri, arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) DriveContact(c.getString(0) ?: c.getString(1), c.getString(1)) else null }
+        }.getOrNull()?.let { contact ->
+            Look.driveContacts = (Look.driveContacts.filter { it.number != contact.number } + contact).take(4)
+            Look.save()
+        }
+    }
+
+    private var pendingCall: String? = null
+    private val askCall = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        pendingCall?.let { number -> safeStart(Intent(if (granted) Intent.ACTION_CALL else Intent.ACTION_DIAL, Uri.parse("tel:$number"))) }
+        pendingCall = null
+    }
+
+    /** Calls straight away once CALL_PHONE is granted (asked the first time); otherwise opens the dialer with the number. */
+    private fun call(number: String) {
+        if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
+            safeStart(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")))
+        } else {
+            pendingCall = number
+            askCall.launch(Manifest.permission.CALL_PHONE)
+        }
+    }
+
+    /** Turn-by-turn in Google Maps when available, otherwise whatever maps app handles geo: (e.g. Waze). */
+    private fun navigate(address: String?) {
+        val q = Uri.encode(address ?: "")
+        val turnByTurn = address != null && runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$q")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.isSuccess
+        if (!turnByTurn) safeStart(Intent(Intent.ACTION_VIEW, Uri.parse(if (address == null) "geo:0,0" else "geo:0,0?q=$q")))
+    }
 
     private var weather by mutableStateOf<Weather?>(null)
     private var weatherLoading by mutableStateOf(false)
@@ -480,6 +524,7 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         Look.load(this)
+        Drive.load(this)
         launcherApps.registerCallback(packageWatcher)
         runCatching { cameraManager.registerTorchCallback(torchCallback, null) }
         applyWindowBackground()
@@ -518,7 +563,20 @@ class MainActivity : ComponentActivity() {
                 onPickPhoto = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onBackgroundChanged = ::applyWindowBackground,
                 apps = apps,
+                onAskBluetooth = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) askBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                },
+                onPickContact = { runCatching { pickPhone.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)) } },
                 onClose = { settingsOpen = false },
+            ) else if (Drive.active) DriveScreen(
+                homeAddress = Look.homeAddress,
+                workAddress = Look.workAddress,
+                contacts = Look.driveContacts,
+                onNavigate = ::navigate,
+                onCall = { call(it.number) },
+                onDial = { safeStart(Intent(Intent.ACTION_DIAL)) },
+                onSetup = { settingsOpen = true },
+                onExit = { Drive.set(this@MainActivity, false) },
             ) else
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 Column(
@@ -622,6 +680,7 @@ class MainActivity : ComponentActivity() {
         }
         hidden = prefs.getStringSet("hidden", emptySet())!!.toSet()
         if (appsDirty) reloadApps()
+        Drive.load(this) // the car receiver may have switched it while we were in the background
         // Ordered list; first run migrates the old unordered set alphabetically
         favorites = prefs.getString("favOrder", null)?.split("\n")?.filter { it.isNotEmpty() }
             ?: prefs.getStringSet("favorites", emptySet())!!.sortedBy { id -> apps.find { it.id == id }?.label?.lowercase() ?: id }
@@ -666,6 +725,7 @@ class MainActivity : ComponentActivity() {
             action == "lock" -> lockScreen()
             action == "notifications" -> expandNotifications()
             action == "search" -> query = ""
+            action == "drive" -> Drive.set(this, true)
             action == "camera" -> safeStart(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
             action == "torch" -> toggleTorch()
             action.startsWith("app:") -> action.removePrefix("app:").split("/").let { (pkg, cls) ->

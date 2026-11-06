@@ -165,7 +165,7 @@ private fun fmt(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return
 
 /** Player-style icons drawn by hand so they match the thin type (no icon library). */
 @Composable
-private fun PlayerIcon(kind: String, color: Color, modifier: Modifier) = Canvas(modifier) {
+internal fun PlayerIcon(kind: String, color: Color, modifier: Modifier) = Canvas(modifier) {
     val w = size.width; val h = size.height
     fun triangle(left: Float, right: Float) = Path().apply { moveTo(left, h * 0.2f); lineTo(right, h * 0.5f); lineTo(left, h * 0.8f); close() }
     when (kind) {
@@ -176,14 +176,11 @@ private fun PlayerIcon(kind: String, color: Color, modifier: Modifier) = Canvas(
     }
 }
 
-/**
- * Media player page: grayscale cover, title (scrolls if long), artist · app, seekable progress bar with times,
- * and previous / play-pause / next. Reads media sessions through the notification-listener grant (NotificationDots).
- * With nothing playing it offers to open the last player used.
- */
-@OptIn(ExperimentalFoundationApi::class)
+/** The active media session (the playing one first), observed live. Shared by the music widget and driving mode. */
+class MediaNow(val controller: MediaController?, val tick: Int, val denied: Boolean)
+
 @Composable
-fun MusicWidget(onNeedAccess: () -> Unit) {
+fun rememberMediaNow(): MediaNow {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE) }
     val sessions = remember { ctx.getSystemService(MediaSessionManager::class.java) }
@@ -191,7 +188,6 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var tick by remember { mutableIntStateOf(0) } // bumps on metadata / playback changes
     var denied by remember { mutableStateOf(false) }
-
     DisposableEffect(Unit) {
         val callback = object : MediaController.Callback() {
             override fun onMetadataChanged(metadata: MediaMetadata?) { tick++ }
@@ -215,6 +211,23 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
             controller?.unregisterCallback(callback)
         }
     }
+    return MediaNow(controller, tick, denied)
+}
+
+/**
+ * Media player page: grayscale cover, title (scrolls if long), artist · app, seekable progress bar with times,
+ * and previous / play-pause / next. Reads media sessions through the notification-listener grant (NotificationDots).
+ * With nothing playing it offers to open the last player used.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MusicWidget(onNeedAccess: () -> Unit) {
+    val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE) }
+    val media = rememberMediaNow()
+    val controller = media.controller
+    val tick = media.tick
+    val denied = media.denied
 
     val c = controller
     val meta = remember(tick, c) { c?.metadata }
