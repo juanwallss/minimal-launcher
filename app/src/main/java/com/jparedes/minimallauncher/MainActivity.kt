@@ -1086,24 +1086,47 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) { letters.forEach { Letter(it) } }
         }
-        // Bubble: inverted circle beside the strip (left of it, or above it), following the finger
+        // Bubble: grows out of the strip (from under the finger) to its spot beside it, and sinks back on release.
+        // The last letter/position are kept so the bubble can finish its way back after the finger lifts.
         val t = touch
-        if (t != null && selected != null) {
-            val bubble = 60.dp
-            val pop = remember { Animatable(0.5f) }
-            LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium)) }
+        val bubble = 60.dp
+        val emerge = remember { Animatable(0f) }
+        var lastPos by remember { mutableFloatStateOf(0f) }
+        var lastLetter by remember { mutableStateOf<String?>(null) }
+        if (t != null) lastPos = t
+        if (t != null && selected != null) lastLetter = selected
+        LaunchedEffect(t != null) {
+            if (t != null) emerge.animateTo(1f, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow))
+            else emerge.animateTo(0f, tween(170, easing = FastOutSlowInEasing))
+        }
+        val shown = lastLetter
+        if (emerge.value > 0.01f && shown != null) {
             Box(
                 Modifier
                     .offset {
-                        if (horizontal) IntOffset((t - bubble.toPx() / 2).toInt(), -(bubble + 14.dp).roundToPx())
-                        else IntOffset(-(bubble + 28.dp).roundToPx(), (t + pad.toPx() - bubble.toPx() / 2).toInt())
+                        val p = emerge.value
+                        val b = bubble.toPx()
+                        if (horizontal) {
+                            val fromY = (40.dp.toPx() - b) / 2         // centered on the strip
+                            val toY = -(b + 14.dp.toPx())              // resting spot above it
+                            IntOffset((lastPos - b / 2).toInt(), (fromY + (toY - fromY) * p).toInt())
+                        } else {
+                            val fromX = (44.dp.toPx() - b) / 2         // centered on the strip
+                            val toX = -(b + 28.dp.toPx())              // resting spot left of it
+                            IntOffset((fromX + (toX - fromX) * p).toInt(), (lastPos + pad.toPx() - b / 2).toInt())
+                        }
                     }
-                    .graphicsLayer { scaleX = pop.value; scaleY = pop.value; alpha = ((pop.value - 0.5f) * 2f).coerceIn(0f, 1f) }
+                    .graphicsLayer {
+                        val p = emerge.value
+                        val scale = 0.2f + 0.8f * p                    // spring overshoot gives a small pop
+                        scaleX = scale; scaleY = scale
+                        alpha = p.coerceIn(0f, 1f)
+                    }
                     .size(bubble)
                     .background(fg, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText(selected.uppercase(), style = TextStyle(color = Bg, fontSize = 30.sp, fontFamily = Thin, fontWeight = FontWeight.Normal))
+                BasicText(shown.uppercase(), style = TextStyle(color = Bg, fontSize = 30.sp, fontFamily = Thin, fontWeight = FontWeight.Normal))
             }
         }
     }
