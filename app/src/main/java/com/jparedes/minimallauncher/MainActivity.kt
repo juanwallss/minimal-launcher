@@ -112,6 +112,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -563,9 +564,12 @@ class MainActivity : ComponentActivity() {
             val q = query
             val listed = when {
                 q != null -> if (q.isBlank()) emptyList() else apps.filter { it.label.contains(q.trim(), ignoreCase = true) }
+                letter == STAR -> favorites.mapNotNull { id -> apps.find { it.id == id } }
                 else -> visible.filter { it.letter == letter }
             }
             val clean = letter == null && q == null
+            // ★ (favorites) heads the bar when there are any
+            val barLetters = (if (favorites.isNotEmpty()) listOf(STAR) else emptyList()) + visible.map { it.letter }.distinct()
             // Layers: theme color, or photo / system wallpaper with a theme-colored veil so text stays readable
             Box(Modifier.fillMaxSize().then(if (Look.background == Look.BG_NONE) Modifier.background(Bg) else Modifier)) {
             if (Look.background == Look.BG_PHOTO) bgImage?.let {
@@ -645,16 +649,7 @@ class MainActivity : ComponentActivity() {
             }
             val bottomBar: @Composable () -> Unit = {
                     if (Look.barBottom) Box(Modifier.padding(top = 12.dp, end = 20.dp)) {
-                        LetterBar(visible.map { it.letter }.distinct(), letter, horizontal = true) { letter = it; query = null; menuFor = null }
-                    }
-            }
-            val favoritesRow: @Composable () -> Unit = {
-                    // Favorites pinned at the bottom as grayscale icons, always visible
-                    Row(
-                        Modifier.padding(top = 16.dp, bottom = 32.dp).horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(28.dp),
-                    ) {
-                        favorites.mapNotNull { id -> apps.find { it.id == id } }.forEach { key(it.id) { FavoriteIcon(it) } }
+                        LetterBar(barLetters, letter, horizontal = true) { letter = it; query = null; menuFor = null }
                     }
             }
             val messageCard: @Composable () -> Unit = {
@@ -677,15 +672,15 @@ class MainActivity : ComponentActivity() {
                     listPane(Modifier.weight(1f))
                     recentsRow()
                     bottomBar()
-                    favoritesRow()
+                    Spacer(Modifier.height(28.dp))
                 } else Row(Modifier.weight(1f).then(homeGesturesMod).padding(start = 36.dp, top = 20.dp)) {
-                    // landscape: clock, recents and favorites on the left; widgets / list / search on the right
+                    // landscape: clock and recents on the left; widgets / list / search on the right
                     Column(Modifier.weight(1f).fillMaxHeight()) {
                         Clock(bottomGap = 12.dp, maxSp = 88f)
                         Spacer(Modifier.weight(1f))
                         recentsRow()
                         bottomBar()
-                        favoritesRow()
+                        Spacer(Modifier.height(20.dp))
                     }
                     Column(Modifier.weight(1.3f).fillMaxHeight().padding(start = 24.dp, top = 12.dp)) {
                         if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
@@ -693,7 +688,7 @@ class MainActivity : ComponentActivity() {
                         listPane(Modifier.weight(1f))
                     }
                 }
-                if (!Look.barBottom) LetterBar(visible.map { it.letter }.distinct(), letter) { letter = it; query = null; menuFor = null }
+                if (!Look.barBottom) LetterBar(barLetters, letter) { letter = it; query = null; menuFor = null }
             }
             } // home
             } // settings ↔ home
@@ -896,58 +891,6 @@ class MainActivity : ComponentActivity() {
         Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888).also {
             d.setBounds(0, 0, px, px); d.draw(Canvas(it))
         }.asImageBitmap()
-    }
-
-    // Tap opens. Long-press + drag sideways reorders; drag up and release removes it.
-    @Composable
-    private fun FavoriteIcon(app: App) {
-        val haptics = LocalHapticFeedback.current
-        val density = LocalDensity.current
-        val slot = with(density) { 72.dp.toPx() }       // icon (44) + gap (28)
-        val dropAt = with(density) { -90.dp.toPx() }
-        var dx by remember { mutableFloatStateOf(0f) }
-        var dy by remember { mutableFloatStateOf(0f) }
-        var dragging by remember { mutableStateOf(false) }
-        var dragEndedAt by remember { mutableStateOf(0L) }
-        fun reset() { dragging = false; dx = 0f; dy = 0f; dragEndedAt = SystemClock.uptimeMillis() }
-        fun move(from: Int, to: Int) {
-            favorites = favorites.toMutableList().apply { add(to, removeAt(from)) }
-            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(
-                iconOf(app), app.label,
-                Modifier.size(44.dp)
-                    .graphicsLayer {
-                        translationX = dx
-                        translationY = dy.coerceAtMost(0f)
-                        val scale = if (dragging) 1.15f else 1f
-                        scaleX = scale; scaleY = scale
-                        alpha = if (dy < dropAt) 0.25f else 1f
-                    }
-                    .pointerInput(app.id) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { dragging = true; dx = 0f; dy = 0f; haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                            onDragEnd = { if (dy < dropAt) toggleFavorite(app) else saveFavorites(favorites); reset() },
-                            onDragCancel = { saveFavorites(favorites); reset() },
-                        ) { change, d ->
-                            change.consume()
-                            dx += d.x; dy += d.y
-                            val i = favorites.indexOf(app.id)
-                            if (dx > slot / 2 && i in 0 until favorites.lastIndex) { move(i, i + 1); dx -= slot }
-                            else if (dx < -slot / 2 && i > 0) { move(i, i - 1); dx += slot }
-                        }
-                    }
-                    .clickable(interactionSource = null, indication = null) {
-                        // a long-press that ends in place must not also open the app
-                        if (!dragging && SystemClock.uptimeMillis() - dragEndedAt > 300) open(app)
-                    },
-                alpha = 0.85f,
-                colorFilter = Grayscale,
-            )
-            val dot = app.pkg in NotificationDots.packages.value
-            Box(Modifier.padding(top = 6.dp).size(4.dp).background(if (dot) Fg else Color.Transparent, CircleShape))
-        }
     }
 
 
@@ -1171,6 +1114,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+internal const val STAR = "★" // bar entry that lists the favorites
+
+/** Thin five-pointed star outline (the favorites entry of the letter bar). */
+@Composable
+private fun StarIcon(color: Color, modifier: Modifier) = Canvas(modifier) {
+    val c = Offset(size.width / 2, size.height * 0.54f)
+    val outer = size.minDimension / 2
+    val path = Path()
+    for (k in 0 until 10) {
+        val r = if (k % 2 == 0) outer else outer * 0.45f
+        val a = Math.toRadians(-90.0 + k * 36.0)
+        val p = Offset(c.x + r * kotlin.math.cos(a).toFloat(), c.y + r * kotlin.math.sin(a).toFloat())
+        if (k == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+    }
+    path.close()
+    drawPath(path, color, style = Stroke(1.2.dp.toPx(), join = StrokeJoin.Round))
+}
+
 // A–Z strip: vertical at the right edge, or horizontal above the favorites (settings → letter bar).
 // Tap or slide along it to pick a letter; while touching, a bubble with the letter follows the finger.
 @Composable
@@ -1235,20 +1196,25 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
             kotlin.math.exp(-d * d)
         }
         val bend by animateFloatAsState(near, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessHigh), label = "bend") // tracks the finger closely
-        BasicText(
-            l.lowercase(),
-            Modifier.graphicsLayer {
-                val s = scale * (1f + 0.18f * bend)
-                scaleX = s; scaleY = s
-                if (horizontal) translationY = -bend * 14.dp.toPx() else translationX = -bend * 24.dp.toPx()
-            },
+        val bent = Modifier.graphicsLayer {
+            val s = scale * (1f + 0.18f * bend)
+            scaleX = s; scaleY = s
+            if (horizontal) translationY = -bend * 14.dp.toPx() else translationX = -bend * 24.dp.toPx()
+        }
+        val color = if (on) base else androidx.compose.ui.graphics.lerp(base, fg, 0.55f * bend)
+        if (l == STAR) StarIcon(color, bent.size(if (tight && !horizontal) 10.dp else 12.dp))
+        else BasicText(
+            l.lowercase(), bent,
             style = TextStyle(
-                color = if (on) base else androidx.compose.ui.graphics.lerp(base, fg, 0.55f * bend), fontFamily = Thin, shadow = shadow, fontSize = if (tight && !horizontal) 11.sp else 13.sp,
+                color = color, fontFamily = Thin, shadow = shadow, fontSize = if (tight && !horizontal) 11.sp else 13.sp,
                 fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
             ),
         )
     }
-    Box(if (horizontal) Modifier.fillMaxWidth().height(40.dp) else Modifier.width(44.dp).fillMaxHeight()) {
+    BoxWithConstraints(if (horizontal) Modifier.fillMaxWidth().height(40.dp) else Modifier.width(44.dp).fillMaxHeight()) {
+        // side bar: compact 22dp cells, centered on the screen — not stretched over the whole height
+        val stripH = minOf(maxHeight - pad * 2, 22.dp * letters.size)
+        val top = (maxHeight - stripH) / 2
         if (horizontal) {
             // fixed-width cells so the strip doesn't shift when the selected letter grows
             Row(Modifier.fillMaxSize().onSizeChanged { stripLen = it.width.toFloat() }.then(strip), verticalAlignment = Alignment.CenterVertically) {
@@ -1256,7 +1222,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
             }
         } else {
             // fixed-height cells: every letter fits and the finger→letter mapping (pos / height * count) matches the drawing
-            Column(Modifier.fillMaxSize().padding(vertical = pad).onSizeChanged { stripLen = it.height.toFloat() }.then(strip)) {
+            Column(Modifier.fillMaxWidth().padding(top = top).height(stripH).onSizeChanged { stripLen = it.height.toFloat() }.then(strip)) {
                 letters.forEachIndexed { i, l -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Letter(l, i) } }
             }
         }
@@ -1287,7 +1253,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
                         } else {
                             val fromX = (44.dp.toPx() - b) / 2         // centered on the strip
                             val toX = -(b + 28.dp.toPx())              // resting spot left of it
-                            IntOffset((fromX + (toX - fromX) * p).toInt(), (lastPos + pad.toPx() - b / 2).toInt())
+                            IntOffset((fromX + (toX - fromX) * p).toInt(), (lastPos + top.toPx() - b / 2).toInt())
                         }
                     }
                     .graphicsLayer {
@@ -1300,7 +1266,8 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
                     .background(fg, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText(shown.uppercase(), style = TextStyle(color = Bg, fontSize = 30.sp, fontFamily = Thin, fontWeight = FontWeight.Normal))
+                if (shown == STAR) StarIcon(Bg, Modifier.size(26.dp))
+                else BasicText(shown.uppercase(), style = TextStyle(color = Bg, fontSize = 30.sp, fontFamily = Thin, fontWeight = FontWeight.Normal))
             }
         }
     }

@@ -1,6 +1,6 @@
 # Minimal
 
-Launcher de Android minimalista: un reloj, una barra de letras y nada más. Sin iconos (salvo tus favoritos, en escala de grises), sin cajón de apps, sin widgets.
+Launcher de Android minimalista: un reloj, una barra de letras y nada más. Iconos en escala de grises, sin cajón de apps, sin widgets.
 
 <p>
   <img src="docs/home.png" width="200" alt="Inicio: reloj, barra de letras y favoritos">
@@ -19,12 +19,12 @@ Launcher de Android minimalista: un reloj, una barra de letras y nada más. Sin 
 | **Doble toque** en el inicio | Bloquea la pantalla |
 | Tocar la **hora** / la **fecha** | Abre las alarmas / el calendario |
 | **Mantener pulsada** una app | Menú: `favorito · info · ocultar · desinstalar` |
-| **Mantener pulsado** un favorito | Lo quita de favoritos |
+| Tocar la **★** de la barra | Muestra tus favoritos (quitarlos: mantener pulsada la app → `favorito`) |
 | **Mantener pulsada** la fecha | Ajustes de acceso a notificaciones (para los puntos) |
 | **Atrás** o **Inicio** | Vuelve a la vista limpia |
 
 - Las **apps ocultas** no salen en la lista ni en la barra, pero sí en la búsqueda (en gris); desde su menú puedes volver a mostrarlas.
-- Un **•** junto a una app (o bajo un favorito) indica que tiene notificaciones.
+- Un **•** junto a una app indica que tiene notificaciones.
 
 ## Permisos opcionales
 
