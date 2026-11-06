@@ -672,11 +672,8 @@ class MainActivity : ComponentActivity() {
             val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 if (!wide) Column(Modifier.weight(1f).then(homeGesturesMod).padding(start = 36.dp, top = 40.dp)) {
-                    // clock and the widget panel share the top row; the clock is capped so both fit
-                    Row {
-                        Box(Modifier.weight(1f)) { Clock(bottomGap = 28.dp, maxSp = 64f) }
-                        WidgetArea(Modifier.padding(start = 12.dp, end = 4.dp).width(PANEL_W.dp))
-                    }
+                    // full-size clock; the widget panel sits beside the date / status lines under it
+                    Clock(bottomGap = 28.dp) { WidgetArea(Modifier.padding(start = 12.dp, end = 4.dp).width(PANEL_W.dp)) }
                     if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
                     messageCard()
                     listPane(Modifier.weight(1f))
@@ -907,7 +904,7 @@ class MainActivity : ComponentActivity() {
 
     // Tap time → alarms, tap date → calendar, long-press date → notification-dot access
     @Composable
-    private fun Clock(bottomGap: Dp = 64.dp, maxSp: Float = Float.MAX_VALUE) {
+    private fun Clock(bottomGap: Dp = 64.dp, maxSp: Float = Float.MAX_VALUE, side: (@Composable () -> Unit)? = null) {
         val clockSp = minOf(Look.clockSp, maxSp)
         val now by produceState(LocalDateTime.now()) {
             while (true) {
@@ -928,6 +925,7 @@ class MainActivity : ComponentActivity() {
                     onLongClick = { settingsOpen = true },
                 ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
             )
+            Row { Column(Modifier.weight(1f)) {
             // line under it: the date (DAY also carries the time; SPLIT already shows time/date/temp in its band)
             val date = when (style) {
                 ClockStyle.DAY -> "$timeText  ·  ${shortDate.lowercase()}"
@@ -995,6 +993,9 @@ class MainActivity : ComponentActivity() {
                     Modifier.clickable(interactionSource = null, indication = null) { expandNotifications() },
                     style = SmallText.copy(fontSize = 14.sp, color = Fg),
                 )
+            }
+            } // date + status column
+            side?.invoke()
             }
         }
     }
