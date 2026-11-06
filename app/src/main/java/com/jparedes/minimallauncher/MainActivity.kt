@@ -1167,7 +1167,9 @@ class MainActivity : ComponentActivity() {
 private fun LetterBar(letters: List<String>, selected: String?, horizontal: Boolean = false, onSelect: (String) -> Unit) {
     val haptics = LocalHapticFeedback.current
     var touch by remember { mutableStateOf<Float?>(null) } // finger position along the strip, null when not touching
-    val pad = if (horizontal) 0.dp else 48.dp
+    // landscape leaves ~380dp of height for ~22 letters: smaller margins and letters so they all fit
+    val tight = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
+    val pad = if (horizontal) 0.dp else if (tight) 12.dp else 48.dp
     val strip = Modifier.pointerInput(letters, horizontal) {
         var last: String? = null
         fun length() = (if (horizontal) size.width else size.height).toFloat()
@@ -1217,7 +1219,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
             l.lowercase(),
             Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
             style = TextStyle(
-                color = color, fontFamily = Thin, shadow = shadow, fontSize = 13.sp,
+                color = color, fontFamily = Thin, shadow = shadow, fontSize = if (tight && !horizontal) 11.sp else 13.sp,
                 fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
             ),
         )
@@ -1229,11 +1231,10 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
                 letters.forEach { l -> Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Letter(l) } }
             }
         } else {
-            Column(
-                Modifier.fillMaxSize().padding(vertical = pad).then(strip),
-                verticalArrangement = Arrangement.SpaceEvenly,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) { letters.forEach { Letter(it) } }
+            // fixed-height cells: every letter fits and the finger→letter mapping (pos / height * count) matches the drawing
+            Column(Modifier.fillMaxSize().padding(vertical = pad).then(strip)) {
+                letters.forEach { l -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Letter(l) } }
+            }
         }
         // Bubble: grows out of the strip (from under the finger) to its spot beside it, and sinks back on release.
         // The last letter/position are kept so the bubble can finish its way back after the finger lifts.
