@@ -111,8 +111,8 @@ internal object Look {
 
     // what goes under the time
     const val INFO_DATE = "date"; const val INFO_WEATHER = "weather"; const val INFO_RINGER = "ringer"
-    const val INFO_BATTERY = "battery"; const val INFO_ALARM = "alarm"; const val INFO_EVENT = "event"; const val INFO_NOTIF = "notif"
-    val INFO_ALL = listOf(INFO_DATE, INFO_WEATHER, INFO_RINGER, INFO_BATTERY, INFO_ALARM, INFO_EVENT, INFO_NOTIF)
+    const val INFO_BATTERY = "battery"; const val INFO_ALARM = "alarm"; const val INFO_EVENT = "event"; const val INFO_NOTIF = "notif"; const val INFO_NET = "net"
+    val INFO_ALL = listOf(INFO_DATE, INFO_WEATHER, INFO_RINGER, INFO_NET, INFO_BATTERY, INFO_ALARM, INFO_EVENT, INFO_NOTIF)
     private val INFO_DEFAULT = INFO_ALL - INFO_ALARM
     var info by mutableStateOf(INFO_DEFAULT.toSet())
 
@@ -146,7 +146,13 @@ internal object Look {
         barLeft = p.getBoolean("barLeft", false)
         barHaptics = p.getInt("barHaptics", 2)
         font = p.getInt("font", 0)
-        info = p.getString("info", null)?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: INFO_DEFAULT.toSet()
+        // saved as what's turned OFF, so items added later show up by default
+        fun list(k: String) = p.getString(k, "")!!.split(",").filter { it.isNotEmpty() }.toSet()
+        info = when {
+            p.contains("infoOff") -> INFO_ALL.toSet() - list("infoOff")
+            p.contains("info") -> list("info") + INFO_NET // older format (what's on), from before the network icon
+            else -> INFO_DEFAULT.toSet()
+        }
         theme = p.getString("theme", THEME_NONE)!!
         showRecents = p.getBoolean("showRecents", true)
         showMessages = p.getBoolean("showMessages", true)
@@ -163,7 +169,7 @@ internal object Look {
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putString("info", info.joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
+            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putString("infoOff", (INFO_ALL - info).joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
@@ -440,7 +446,7 @@ private fun HomePage(set: (() -> Unit) -> Unit) {
         }
     }
     Section(stringResource(R.string.s_info)) {
-        val names = mapOf(Look.INFO_DATE to R.string.i_date, Look.INFO_WEATHER to R.string.i_weather, Look.INFO_RINGER to R.string.i_ringer,
+        val names = mapOf(Look.INFO_DATE to R.string.i_date, Look.INFO_WEATHER to R.string.i_weather, Look.INFO_RINGER to R.string.i_ringer, Look.INFO_NET to R.string.i_net,
             Look.INFO_BATTERY to R.string.i_battery, Look.INFO_ALARM to R.string.i_alarm, Look.INFO_EVENT to R.string.i_event, Look.INFO_NOTIF to R.string.i_notif)
         // each one toggles on its own
         Look.INFO_ALL.forEach { k -> Choice(stringResource(names.getValue(k)), k in Look.info) { set { Look.info = if (k in Look.info) Look.info - k else Look.info + k } } }

@@ -994,6 +994,18 @@ class MainActivity : ComponentActivity() {
                     BasicText("${wx.temp}°", Modifier.padding(start = 5.dp), style = SmallText.copy(fontSize = 16.sp))
                 }
                 // sound · vibrate · silent; tap shows the system volume panel (where the mode can be switched)
+                // wifi (with its signal) · mobile data · offline; tap opens the system internet panel
+                if (Look.INFO_NET in info) {
+                    val (kind, level) = network(now)
+                    NetIcon(
+                        kind, level, Dim,
+                        Modifier.padding(start = if (date.isEmpty()) 0.dp else 10.dp).size(26.dp).clip(CircleShape)
+                            .clickable(interactionSource = null, indication = null) {
+                                safeStart(Intent(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Settings.Panel.ACTION_INTERNET_CONNECTIVITY else Settings.ACTION_WIRELESS_SETTINGS))
+                            }
+                            .padding(5.dp),
+                    )
+                }
                 if (Look.INFO_RINGER in info) RingerIcon(
                     ringerMode(), Dim,
                     Modifier.padding(start = if (date.isEmpty()) 0.dp else 12.dp).size(26.dp).clip(CircleShape)
@@ -1053,6 +1065,39 @@ class MainActivity : ComponentActivity() {
             onDispose { unregisterReceiver(receiver) }
         }
         return mode
+    }
+
+    /** Network kind (NET_*) and signal level 0–3, kept live with the default-network callback. */
+    @Composable
+    private fun network(now: LocalDateTime): Pair<Int, Int> {
+        val cm = remember { getSystemService(android.net.ConnectivityManager::class.java) }
+        fun kindOf(c: android.net.NetworkCapabilities?) = when {
+            c == null -> NET_NONE
+            c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> NET_WIFI
+            c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> NET_CELL
+            else -> NET_OTHER
+        }
+        var caps by remember { mutableStateOf(cm.getNetworkCapabilities(cm.activeNetwork)) }
+        DisposableEffect(Unit) {
+            val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onCapabilitiesChanged(n: android.net.Network, c: android.net.NetworkCapabilities) { caps = c }
+                override fun onLost(n: android.net.Network) { caps = null }
+            }
+            runCatching { cm.registerDefaultNetworkCallback(cb, android.os.Handler(mainLooper)) }
+            onDispose { runCatching { cm.unregisterNetworkCallback(cb) } }
+        }
+        val kind = kindOf(caps)
+        val level = remember(kind, caps, now) {
+            when (kind) {
+                NET_WIFI -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && caps!!.signalStrength != android.net.NetworkCapabilities.SIGNAL_STRENGTH_UNSPECIFIED)
+                    @Suppress("DEPRECATION") android.net.wifi.WifiManager.calculateSignalLevel(caps!!.signalStrength, 4) else 3
+                // phone signal 0–4 → 0–3 (no permission needed); refreshed once a minute with the clock
+                NET_CELL -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                    ((getSystemService(android.telephony.TelephonyManager::class.java).signalStrength?.level ?: 4) * 3 + 3) / 4 else 3
+                else -> 0
+            }
+        }
+        return kind to level
     }
 
     @Composable
@@ -1396,6 +1441,37 @@ private fun Modifier.fadeEdges(state: LazyListState): Modifier {
                 blendMode = BlendMode.DstIn,
             )
         }
+}
+
+internal const val NET_NONE = 0
+internal const val NET_WIFI = 1
+internal const val NET_CELL = 2
+internal const val NET_OTHER = 3 // ethernet, VPN-only…: shown as wifi
+
+/** Thin wifi fan or phone-signal bars; arcs/bars above [level] (0–3) are faint. Offline: faint bars crossed out. */
+@Composable
+private fun NetIcon(kind: Int, level: Int, color: Color, modifier: Modifier) = Canvas(modifier) {
+    val w = size.width
+    val h = size.height
+    val sw = 1.4.dp.toPx()
+    val faint = color.copy(alpha = 0.3f)
+    if (kind == NET_WIFI || kind == NET_OTHER) {
+        val c = Offset(w / 2, h * 0.82f)
+        drawCircle(color, sw * 0.9f, c)
+        for (i in 1..3) {
+            val r = h * 0.22f * i
+            drawArc(if (i <= level || kind == NET_OTHER) color else faint, 225f, 90f, false, Offset(c.x - r, c.y - r), Size(r * 2, r * 2), style = Stroke(sw, cap = StrokeCap.Round))
+        }
+    } else {
+        // four rising bars (strokes), filled up to the level; lowest one always on when connected
+        for (i in 0 until 4) {
+            val x = w * (0.2f + i * 0.2f)
+            val top = h * (0.72f - i * 0.16f)
+            val on = kind == NET_CELL && i <= level
+            drawLine(if (on) color else faint, Offset(x, h * 0.82f), Offset(x, top), sw * 1.3f, StrokeCap.Round)
+        }
+        if (kind == NET_NONE) drawLine(color, Offset(w * 0.12f, h * 0.18f), Offset(w * 0.88f, h * 0.86f), sw, StrokeCap.Round)
+    }
 }
 
 /** Hand-drawn thin bell (sound), bell with a slash (silent), or phone with waves (vibrate) — matches the Jost strokes. */

@@ -154,4 +154,5 @@
     <string name="i_notif">notifications</string>
     <string name="alarm_at">alarm %1$s</string>
     <string name="s_font">font</string>
+    <string name="i_net">wifi / data</string>
 </resources>
