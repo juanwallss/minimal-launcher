@@ -333,12 +333,15 @@ class MainActivity : ComponentActivity() {
             if (intent.getBooleanExtra("onboarding", false)) Look.onboarded = false
             if (intent.hasExtra("bar_left")) Look.barLeft = intent.getBooleanExtra("bar_left", false)
         }
-        // debug: --ez msg_test true shows a fake chat in the message card (gone with the next real notification change)
+        // debug: --ez msg_test true shows a fake chat in the message card (gone with the next real notification change),
+        // a new one each time (to see the swap animation); --ez msg_test false hides it
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("msg_test") && !intent.getBooleanExtra("msg_test", false))
+            NotificationDots.messages.value = emptyList()
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.getBooleanExtra("msg_test", false)) {
             val pi = android.app.PendingIntent.getBroadcast(this, 0, Intent("test.noop").setPackage(packageName), android.app.PendingIntent.FLAG_MUTABLE)
             val input = android.app.RemoteInput.Builder("text").build()
             NotificationDots.messages.value = listOf(
-                Message("test", packageName, "Niklas", "Hi, what's up?", System.currentTimeMillis(),
+                Message("test${System.nanoTime()}", packageName, "Niklas", "Hi, what's up?", System.currentTimeMillis(),
                     android.app.Notification.Action.Builder(null, "Reply", pi).addRemoteInput(input).build(),
                     listOf(android.app.Notification.Action.Builder(null, "Mark as read", pi).build(), android.app.Notification.Action.Builder(null, "Mute", pi).build()),
                     listOf("Nothing much", "Not much, you?", "How are you?"), null),
