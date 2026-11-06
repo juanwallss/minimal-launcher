@@ -480,6 +480,7 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         Look.load(this)
+        launcherApps.registerCallback(packageWatcher)
         runCatching { cameraManager.registerTorchCallback(torchCallback, null) }
         applyWindowBackground()
         if (Look.background == Look.BG_PHOTO) lifecycleScope.launch {
@@ -580,7 +581,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ponytail: reloads on every resume instead of listening for package changes; cheap enough for a home screen
+    // App list is (re)built only on start and when a package is installed / updated / removed —
+    // not on every Home press (loading ~150 labels each time was the main per-resume cost).
+    private var appsDirty = true
+    private val launcherApps by lazy { getSystemService(android.content.pm.LauncherApps::class.java) }
+    private val packageWatcher = object : android.content.pm.LauncherApps.Callback() {
+        private fun changed(vararg pkgs: String) {
+            pkgs.forEach { pkg -> iconCache.keys.removeAll { it.startsWith("$pkg/") } } // new icon after an update
+            appsDirty = true
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) { reloadApps(); loadRecents() }
+        }
+        override fun onPackageAdded(packageName: String, user: android.os.UserHandle) = changed(packageName)
+        override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) = changed(packageName)
+        override fun onPackageChanged(packageName: String, user: android.os.UserHandle) = changed(packageName)
+        override fun onPackagesAvailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) = changed(*packageNames)
+        override fun onPackagesUnavailable(packageNames: Array<out String>, user: android.os.UserHandle, replacing: Boolean) = changed(*packageNames)
+    }
+
+    private fun reloadApps() {
+        appsDirty = false
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        apps = packageManager.queryIntentActivities(intent, 0)
+            .filter { it.activityInfo.packageName != packageName }
+            .map { App(it.loadLabel(packageManager).toString(), it.activityInfo.packageName, it.activityInfo.name) }
+            .sortedBy { it.label.lowercase() }
+    }
+
+    override fun onDestroy() {
+        runCatching { launcherApps.unregisterCallback(packageWatcher) }
+        super.onDestroy()
+    }
+
     override fun onResume() {
         super.onResume()
         resetView() // pressing Home always lands on the clean clock view
@@ -590,11 +621,7 @@ class MainActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.statusBars())
         }
         hidden = prefs.getStringSet("hidden", emptySet())!!.toSet()
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        apps = packageManager.queryIntentActivities(intent, 0)
-            .filter { it.activityInfo.packageName != packageName }
-            .map { App(it.loadLabel(packageManager).toString(), it.activityInfo.packageName, it.activityInfo.name) }
-            .sortedBy { it.label.lowercase() }
+        if (appsDirty) reloadApps()
         // Ordered list; first run migrates the old unordered set alphabetically
         favorites = prefs.getString("favOrder", null)?.split("\n")?.filter { it.isNotEmpty() }
             ?: prefs.getStringSet("favorites", emptySet())!!.sortedBy { id -> apps.find { it.id == id }?.label?.lowercase() ?: id }
@@ -737,7 +764,7 @@ class MainActivity : ComponentActivity() {
         style = SmallText,
     )
 
-    // ponytail: plain map cache, never evicted; fine for a few hundred apps (stale icon after an app update until the launcher restarts)
+    // Plain map cache; an app's entries are dropped when it's updated (see packageWatcher)
     private val iconCache = HashMap<String, ImageBitmap>()
 
     private fun iconOf(app: App) = iconCache.getOrPut(app.id) {
@@ -1006,31 +1033,42 @@ class MainActivity : ComponentActivity() {
      * the phone brought to the foreground in the last 3 days; otherwise only what was opened from this launcher.
      */
     private fun loadRecents() {
+        if (!Look.showRecents) { recents = emptyList(); return }
+        // snapshot UI state on the main thread, do the work on a background thread
         val byPkg = apps.associateBy { it.pkg }
         val byId = apps.associateBy { it.id }
-        val ordered = if (hasUsageAccess()) {
-            recentPackages().mapNotNull { byPkg[it] }
-        } else {
-            prefs.getString("recent", "")!!.split("\n").mapNotNull { byId[it] }
+        val fav = favorites
+        val hid = hidden
+        lifecycleScope.launch {
+            val ordered = withContext(Dispatchers.Default) {
+                if (hasUsageAccess()) recentPackages().mapNotNull { byPkg[it] }
+                else prefs.getString("recent", "")!!.split("\n").mapNotNull { byId[it] }
+            }
+            recents = ordered.filter { it.id !in fav && it.id !in hid }.distinctBy { it.pkg }.take(5)
         }
-        recents = ordered.filter { it.id !in favorites && it.id !in hidden }.distinctBy { it.pkg }.take(5)
     }
 
-    // ponytail: reads 3 days of usage events on the main thread at each resume; fine at this volume, move off-thread if it stutters
-    private fun recentPackages(): List<String> {
+    // Usage history cache: the first call reads 3 days of events, later calls only what happened since the last read.
+    private val usageLast = HashMap<String, Long>() // package → last time it came to the foreground
+    private var usageReadUntil = 0L
+
+    private fun recentPackages(): List<String> = synchronized(usageLast) {
         val usm = getSystemService(UsageStatsManager::class.java)
         val now = System.currentTimeMillis()
-        val events = usm.queryEvents(now - 3 * 86_400_000L, now)
-        val last = HashMap<String, Long>()
+        val window = 3 * 86_400_000L
+        val events = usm.queryEvents(if (usageReadUntil == 0L) now - window else usageReadUntil, now)
         val e = UsageEvents.Event()
         while (events.hasNextEvent()) {
             events.getNextEvent(e)
             @Suppress("DEPRECATION") // == ACTIVITY_RESUMED (API 29) with the same value
-            if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND && e.packageName != packageName) last[e.packageName] = e.timeStamp
+            if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND && e.packageName != packageName) usageLast[e.packageName] = e.timeStamp
         }
+        usageReadUntil = now
+        usageLast.entries.removeAll { it.value < now - window }
+        // apply "remove" / "clear all" cut-offs to the view, not the cache
         val clearedAt = prefs.getLong("recentClearedAt", 0)
-        last.entries.removeAll { (pkg, time) -> time <= maxOf(clearedAt, prefs.getLong("rd:$pkg", 0)) }
-        return last.entries.sortedByDescending { it.value }.map { it.key }
+        usageLast.entries.filter { (pkg, time) -> time > maxOf(clearedAt, prefs.getLong("rd:$pkg", 0)) }
+            .sortedByDescending { it.value }.map { it.key }
     }
 }
 

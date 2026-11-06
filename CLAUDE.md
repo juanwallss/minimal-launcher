@@ -81,6 +81,8 @@ Gesture actions: `none|lock|notifications|search|camera|torch|app:<pkg>/<activit
 - `SET_ALARM` permission is needed for Samsung's clock to accept `ACTION_SHOW_ALARMS`.
 - `ACCESSIBILITY` / notification access / usage access / calendar / location are user-granted; never toggle them via
   adb — send the user to the right settings screen instead.
+- **Keep `onResume` cheap** (it runs on every Home press): the app list is rebuilt only when `LauncherApps`
+  reports a package change (`packageWatcher`), and recents read usage events incrementally off the main thread.
 - Respect system animation scale (Compose does by default); keep animations short (≤ ~450 ms).
 
 ## Conventions
