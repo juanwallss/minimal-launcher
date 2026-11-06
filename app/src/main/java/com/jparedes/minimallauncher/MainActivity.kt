@@ -279,8 +279,11 @@ class MainActivity : ComponentActivity() {
         // forces the inline weather glyph so each icon can be checked; any normal Home press clears it.
         weatherTestCode = if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("wx_test"))
             intent.getIntExtra("wx_test", 0) else null
+        moonTestPhase = if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("moon"))
+            intent.getFloatExtra("moon", 0f) else null
     }
     private var weatherTestCode by mutableStateOf<Int?>(null)
+    private var moonTestPhase by mutableStateOf<Float?>(null) // debug: --ef moon <0..1> forces night + that phase
 
     private var weather by mutableStateOf<Weather?>(null)
     private var weatherLoading by mutableStateOf(false)
@@ -867,7 +870,10 @@ class MainActivity : ComponentActivity() {
                     Modifier.padding(start = 14.dp).clickable(interactionSource = null, indication = null) { refreshWeather(force = true) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    WeatherIcon(weatherKind(wxCode), Dim, Modifier.size(20.dp))
+                    val kind = weatherKind(wxCode)
+                    // clear sky at night → the moon in today's phase
+                    if (kind == WeatherKind.SUN && (moonTestPhase != null || wx.isNight(now))) MoonIcon(moonTestPhase ?: moonPhase(), Dim, Modifier.size(20.dp))
+                    else WeatherIcon(kind, Dim, Modifier.size(20.dp))
                     BasicText("${wx.temp}°", Modifier.padding(start = 5.dp), style = SmallText.copy(fontSize = 16.sp))
                 }
                 // sound · vibrate · silent; tap shows the system volume panel (where the mode can be switched)

@@ -305,12 +305,30 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
 
 // ---------------------------------------------------------------- Weather
 
-data class Weather(val temp: Int, val code: Int, val max: Int, val min: Int, val place: String?, val at: Long) {
-    fun toJson() = JSONObject().put("temp", temp).put("code", code).put("max", max).put("min", min).put("place", place ?: "").put("at", at).toString()
+data class Weather(
+    val temp: Int, val code: Int, val max: Int, val min: Int, val place: String?, val at: Long,
+    val sunrise: String? = null, val sunset: String? = null, // local ISO times, e.g. 2026-11-05T06:43
+) {
+    fun toJson() = JSONObject().put("temp", temp).put("code", code).put("max", max).put("min", min).put("place", place ?: "").put("at", at)
+        .put("sunrise", sunrise ?: "").put("sunset", sunset ?: "").toString()
+
+    /** Before today's sunrise or after sunset (by clock time, so a cache from earlier today still works). */
+    fun isNight(now: LocalDateTime): Boolean {
+        val rise = sunrise?.let { runCatching { LocalDateTime.parse(it).toLocalTime() }.getOrNull() }
+        val set = sunset?.let { runCatching { LocalDateTime.parse(it).toLocalTime() }.getOrNull() }
+        if (rise == null || set == null) return now.hour < 7 || now.hour >= 19 // no data yet: rough guess
+        val t = now.toLocalTime()
+        return t.isBefore(rise) || t.isAfter(set)
+    }
 
     companion object {
         fun fromJson(s: String?) = runCatching {
-            JSONObject(s!!).run { Weather(getInt("temp"), getInt("code"), getInt("max"), getInt("min"), getString("place").ifBlank { null }, getLong("at")) }
+            JSONObject(s!!).run {
+                Weather(
+                    getInt("temp"), getInt("code"), getInt("max"), getInt("min"), getString("place").ifBlank { null }, getLong("at"),
+                    optString("sunrise").ifBlank { null }, optString("sunset").ifBlank { null },
+                )
+            }
         }.getOrNull()
     }
 }
@@ -355,7 +373,7 @@ suspend fun Context.fetchWeather(): Weather? = withContext(Dispatchers.IO) {
         val lon = String.format(Locale.US, "%.2f", loc.longitude)
         val url = URL(
             "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
-                "&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1"
+                "&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=1"
         )
         val json = (url.openConnection() as HttpURLConnection).run {
             connectTimeout = 5_000; readTimeout = 5_000
@@ -371,6 +389,8 @@ suspend fun Context.fetchWeather(): Weather? = withContext(Dispatchers.IO) {
             max = Math.round(daily.getJSONArray("temperature_2m_max").getDouble(0)).toInt(),
             min = Math.round(daily.getJSONArray("temperature_2m_min").getDouble(0)).toInt(),
             place = place?.lowercase(),
+            sunrise = daily.optJSONArray("sunrise")?.optString(0),
+            sunset = daily.optJSONArray("sunset")?.optString(0),
             at = System.currentTimeMillis(),
         )
     }.getOrNull()
@@ -444,4 +464,39 @@ fun WeatherIcon(kind: WeatherKind, color: Color, modifier: Modifier) = Canvas(mo
             }
         }
     }
+}
+
+// ---------------------------------------------------------------- Moon
+
+/** Moon age as a fraction of the synodic month: 0 new · 0.25 first quarter · 0.5 full · 0.75 last quarter. */
+fun moonPhase(now: Long = System.currentTimeMillis()): Float {
+    val days = (now - 947_182_440_000L) / 86_400_000.0 // reference new moon: 2000-01-06 18:14 UTC
+    val p = (days / 29.530588853) % 1.0
+    return (if (p < 0) p + 1 else p).toFloat()
+}
+
+/**
+ * Thin moon outline with the lit part filled for [phase]. The lit edge is a half circle; the terminator is half an
+ * ellipse whose width follows cos(2π·phase), bulging toward the dark side for crescents and the lit side for gibbous.
+ * Waxing lights the right side (northern-hemisphere view), waning the left.
+ */
+@Composable
+fun MoonIcon(phase: Float, color: Color, modifier: Modifier) = Canvas(modifier) {
+    val r = size.minDimension * 0.36f
+    val c = Offset(size.width / 2, size.height / 2)
+    val circle = Rect(c.x - r, c.y - r, c.x + r, c.y + r)
+    val k = kotlin.math.cos(2 * Math.PI * phase).toFloat()   // 1 new … -1 full
+    val rx = r * kotlin.math.abs(k)
+    val ellipse = Rect(c.x - rx, c.y - r, c.x + rx, c.y + r)
+    val waxing = phase < 0.5f
+    val lit = Path().apply {
+        moveTo(c.x, c.y - r)
+        arcTo(circle, -90f, if (waxing) 180f else -180f, false)        // lit limb: top → bottom on the lit side
+        // terminator bottom → top: crescents bulge toward the lit limb (thin sliver), gibbous away from it
+        val towardRight = if (waxing) k > 0 else k < 0
+        arcTo(ellipse, 90f, if (towardRight) -180f else 180f, false)
+        close()
+    }
+    if (kotlin.math.abs(phase - 0f) > 0.02f && kotlin.math.abs(phase - 1f) > 0.02f) drawPath(lit, color.copy(alpha = color.alpha * 0.85f))
+    drawCircle(color, radius = r, center = c, style = Stroke(width = 1.4.dp.toPx()))
 }
