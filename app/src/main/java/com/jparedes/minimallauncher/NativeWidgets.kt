@@ -41,6 +41,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -390,6 +393,54 @@ fun WeatherWidget(hasPermission: Boolean, weather: Weather?, loading: Boolean, o
                     }
                 }
                 weather.place?.let { BasicText(it, Modifier.padding(top = 6.dp), style = SmallText.copy(fontSize = 13.sp)) }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Inline weather glyphs
+
+enum class WeatherKind { SUN, CLOUD, RAIN }
+
+/** WMO code → the three glyphs: clear/mostly clear = sun, rain/drizzle/showers/storm = rain, the rest = cloud. */
+fun weatherKind(code: Int) = when (code) {
+    0, 1 -> WeatherKind.SUN
+    in 51..67, in 80..82, in 95..99 -> WeatherKind.RAIN
+    else -> WeatherKind.CLOUD
+}
+
+/** Thin hand-drawn sun / cloud / rain, same stroke as the other launcher icons. */
+@Composable
+fun WeatherIcon(kind: WeatherKind, color: Color, modifier: Modifier) = Canvas(modifier) {
+    val w = size.width
+    val h = size.height
+    val stroke = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+    fun cloud(dy: Float, k: Float) = Path().apply {
+        // flat base with three bumps (right, big top, left), scaled by k around the center
+        fun x(v: Float) = w * (0.5f + (v - 0.5f) * k)
+        fun y(v: Float) = h * (0.5f + (v - 0.5f) * k + dy)
+        moveTo(x(0.3f), y(0.74f))
+        lineTo(x(0.76f), y(0.74f))
+        arcTo(Rect(x(0.62f), y(0.46f), x(0.9f), y(0.74f)), 90f, -180f, false)
+        arcTo(Rect(x(0.3f), y(0.26f), x(0.72f), y(0.68f)), -20f, -165f, false)
+        arcTo(Rect(x(0.12f), y(0.5f), x(0.36f), y(0.74f)), 270f, -180f, false)
+        close()
+    }
+    when (kind) {
+        WeatherKind.SUN -> {
+            val c = Offset(w / 2, h / 2)
+            drawCircle(color, radius = w * 0.2f, center = c, style = stroke)
+            repeat(8) { i ->
+                val a = Math.toRadians(i * 45.0)
+                val dx = kotlin.math.cos(a).toFloat(); val dy = kotlin.math.sin(a).toFloat()
+                drawLine(color, Offset(c.x + dx * w * 0.32f, c.y + dy * h * 0.32f), Offset(c.x + dx * w * 0.44f, c.y + dy * h * 0.44f), stroke.width, StrokeCap.Round)
+            }
+        }
+        WeatherKind.CLOUD -> drawPath(cloud(0f, 1f), color, style = stroke)
+        WeatherKind.RAIN -> {
+            drawPath(cloud(-0.12f, 0.92f), color, style = stroke)
+            listOf(0.34f, 0.52f, 0.7f).forEach { x ->
+                drawLine(color, Offset(w * x, h * 0.74f), Offset(w * (x - 0.06f), h * 0.92f), stroke.width, StrokeCap.Round)
             }
         }
     }

@@ -275,7 +275,12 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         settingsOpen = false
         resetView()
+        // Debug builds only: `adb shell am start -n com.jparedes.minimallauncher/.MainActivity --ei wx_test <WMO code>`
+        // forces the inline weather glyph so each icon can be checked; any normal Home press clears it.
+        weatherTestCode = if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("wx_test"))
+            intent.getIntExtra("wx_test", 0) else null
     }
+    private var weatherTestCode by mutableStateOf<Int?>(null)
 
     private var weather by mutableStateOf<Weather?>(null)
     private var weatherLoading by mutableStateOf(false)
@@ -293,7 +298,7 @@ class MainActivity : ComponentActivity() {
 
     // ponytail: refreshes at most every 30 min, only while the launcher is open — no background job
     private fun refreshWeather(force: Boolean = false) {
-        if (NativeWidget.WEATHER.key !in pages || weatherLoading || !hasLocation()) return
+        if (weatherLoading || !hasLocation()) return
         val cached = weather ?: Weather.fromJson(prefs.getString("weather", null)).also { weather = it }
         if (!force && cached != null && System.currentTimeMillis() - cached.at < 30 * 60_000L) return
         weatherLoading = true
@@ -855,6 +860,16 @@ class MainActivity : ComponentActivity() {
                     ) { safeStart(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR)) },
                     style = SmallText.copy(fontSize = 16.sp),
                 )
+                // current temperature with a sun / cloud / rain glyph; tap refreshes it
+                val wx = weather
+                val wxCode = weatherTestCode ?: wx?.code
+                if (wx != null && wxCode != null) Row(
+                    Modifier.padding(start = 14.dp).clickable(interactionSource = null, indication = null) { refreshWeather(force = true) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    WeatherIcon(weatherKind(wxCode), Dim, Modifier.size(20.dp))
+                    BasicText("${wx.temp}°", Modifier.padding(start = 5.dp), style = SmallText.copy(fontSize = 16.sp))
+                }
                 // sound · vibrate · silent; tap shows the system volume panel (where the mode can be switched)
                 RingerIcon(
                     ringerMode(), Dim,
