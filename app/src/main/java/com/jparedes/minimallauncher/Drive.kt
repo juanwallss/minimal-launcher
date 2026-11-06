@@ -50,6 +50,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import android.telephony.PhoneNumberUtils
+import android.telephony.TelephonyManager
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.asImageBitmap
+import java.util.Locale
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -71,6 +78,36 @@ internal object Drive {
         active = on
         prefs(ctx).edit().putBoolean("driveActive", on).apply()
     }
+
+    private val WHATSAPP = listOf("com.whatsapp", "com.whatsapp.w4b")
+
+    /**
+     * Quick WhatsApp message. If [to] wrote recently, answers through WhatsApp's own notification reply: sent with
+     * this one tap (returns true). Otherwise opens the chat with [text] typed in — WhatsApp needs the send tap.
+     */
+    fun quickSend(ctx: Context, to: DriveContact, text: String): Boolean {
+        val name = to.name.trim()
+        val chat = NotificationDots.messages.value.firstOrNull {
+            it.pkg in WHATSAPP && it.reply != null && it.title.trim().equals(name, ignoreCase = true)
+        }
+        if (chat != null && NotificationDots.reply(ctx, chat, text, fromSuggestion = false)) return true
+        val iso = ctx.getSystemService(TelephonyManager::class.java)?.networkCountryIso?.uppercase()?.ifEmpty { null } ?: Locale.getDefault().country
+        val phone = (PhoneNumberUtils.formatNumberToE164(to.number, iso) ?: to.number).filter { it.isDigit() }
+        val pkg = WHATSAPP.firstOrNull { p -> runCatching { ctx.packageManager.getPackageInfo(p, 0) }.isSuccess }
+        runCatching {
+            ctx.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$phone?text=${Uri.encode(text)}"))
+                    .apply { pkg?.let(::setPackage) }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+        return false
+    }
+}
+
+/** The three quick messages: the user's own, or the defaults in the phone's language. */
+@Composable
+internal fun quickMessages(): List<String> = Look.quickMsgs.ifEmpty {
+    listOf(stringResource(R.string.q_1), stringResource(R.string.q_2), stringResource(R.string.q_3))
 }
 
 /**
@@ -114,6 +151,7 @@ fun DriveScreen(
     homeAddress: String,
     workAddress: String,
     contacts: List<DriveContact>,
+    quickTo: DriveContact? = null,
     onNavigate: (String?) -> Unit,   // null = just open the map
     onCall: (DriveContact) -> Unit,
     onDial: () -> Unit,
@@ -150,6 +188,7 @@ fun DriveScreen(
             BigButton(stringResource(R.string.drive_work), dim = workAddress.isBlank()) { if (workAddress.isBlank()) onSetup() else onNavigate(workAddress) }
             BigButton(stringResource(R.string.drive_map)) { onNavigate(null) }
         }
+        quickTo?.let { QuickMessages(it) }
 
         // call: up to 4 favorites (2 per row) + dialer
         val rows = (contacts.map { it as DriveContact? } + listOf<DriveContact?>(null)).chunked(2)
@@ -181,15 +220,61 @@ fun DriveScreen(
     val outer = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 28.dp, vertical = 20.dp)
     if (!wide) Column(outer, verticalArrangement = Arrangement.spacedBy(28.dp)) {
         header()
+        NotificationDots.nav.value?.let { NavCard(it) }
         DriveMusic(Modifier.weight(1f))
         Column(verticalArrangement = Arrangement.spacedBy(28.dp)) { navAndCalls() }
     } else Row(outer, horizontalArrangement = Arrangement.spacedBy(32.dp)) {
         // landscape (phone on a car mount): player on the left, destinations and calls on the right
         Column(Modifier.weight(1f).fillMaxHeight()) {
             header()
+            NotificationDots.nav.value?.let { NavCard(it, Modifier.padding(top = 16.dp)) }
             DriveMusic(Modifier.weight(1f))
         }
         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically)) { navAndCalls() }
+    }
+}
+
+/** Next turn while the maps app navigates (read from its notification); tap goes back to the map. */
+@Composable
+private fun NavCard(n: Nav, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    Row(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).border(1.dp, Fg, RoundedCornerShape(20.dp))
+            .clickable { NotificationDots.send(ctx, n.open) }.padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val arrow = remember(n.icon) { n.icon?.asImageBitmap() }
+        arrow?.let { Image(it, null, Modifier.padding(end = 16.dp).size(56.dp), colorFilter = ColorFilter.tint(Fg)) }
+        Column(Modifier.weight(1f)) {
+            BasicText(n.title.ifBlank { stringResource(R.string.drive_navigating) }, style = RowText.copy(fontSize = 28.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (n.text.isNotBlank()) BasicText(n.text, Modifier.padding(top = 2.dp), style = RowText.copy(fontSize = 18.sp, color = Fg.copy(alpha = 0.8f)), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (n.sub.isNotBlank()) BasicText(n.sub, Modifier.padding(top = 4.dp), style = SmallText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** "whatsapp to …" and the three quick messages as big pills; a sent one shows "sent ✓" for a moment. */
+@Composable
+private fun QuickMessages(to: DriveContact) {
+    val ctx = LocalContext.current
+    var sent by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(sent) { if (sent != null) { delay(2000); sent = null } }
+    Column {
+        BasicText(stringResource(R.string.drive_quick, to.name.lowercase()), style = SmallText)
+        Row(
+            Modifier.padding(top = 10.dp).fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            quickMessages().filter { it.isNotBlank() }.forEach { text ->
+                Box(
+                    Modifier.height(64.dp).clip(RoundedCornerShape(20.dp)).border(1.dp, Fg, RoundedCornerShape(20.dp))
+                        .clickable { if (Drive.quickSend(ctx, to, text)) sent = text }.padding(horizontal = 22.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    BasicText(if (sent == text) stringResource(R.string.msg_sent) else text, style = RowText.copy(fontSize = 18.sp), maxLines = 1)
+                }
+            }
+        }
     }
 }
 

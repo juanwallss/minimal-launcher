@@ -25,19 +25,36 @@ data class Message(
     val open: PendingIntent?,
 )
 
+/** Turn-by-turn from the maps app's ongoing notification: next maneuver, street, arrival. */
+data class Nav(val title: String, val text: String, val sub: String, val icon: android.graphics.Bitmap?, val open: PendingIntent?)
+
 // Which packages have dismissable notifications (dots, • n), plus the newest chat messages for the reply card
 class NotificationDots : NotificationListenerService() {
     override fun onListenerConnected() { instance = this; refresh() }
     override fun onNotificationPosted(sbn: StatusBarNotification?) = refresh()
     override fun onNotificationRemoved(sbn: StatusBarNotification?) = refresh()
     override fun onNotificationRankingUpdate(rankingMap: RankingMap?) = refresh() // smart replies arrive here, a bit after the post
-    override fun onListenerDisconnected() { instance = null; packages.value = emptySet(); messages.value = emptyList() }
+    override fun onListenerDisconnected() { instance = null; packages.value = emptySet(); messages.value = emptyList(); nav.value = null }
 
     private fun refresh() {
         val active = runCatching { activeNotifications.toList() }.getOrDefault(emptyList())
         packages.value = active.filter { it.isClearable }.map { it.packageName }.toSet()
         val ranking = currentRanking
         messages.value = active.mapNotNull { sbn -> toMessage(sbn, ranking) }.sortedByDescending { it.time }
+        nav.value = active.firstOrNull { it.packageName in NAV_APPS && it.isOngoing }?.let(::toNav)
+    }
+
+    private fun toNav(sbn: StatusBarNotification): Nav {
+        val n = sbn.notification
+        val e = n.extras
+        fun s(k: String) = e.getCharSequence(k)?.toString().orEmpty()
+        // the maneuver arrow is the large icon
+        val icon = runCatching {
+            val d = n.getLargeIcon()!!.loadDrawable(this)!!
+            val px = (56 * resources.displayMetrics.density).toInt()
+            android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888).also { d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(it)) }
+        }.getOrNull()
+        return Nav(s(Notification.EXTRA_TITLE), s(Notification.EXTRA_TEXT), s(Notification.EXTRA_SUB_TEXT), icon, n.contentIntent)
     }
 
     private fun toMessage(sbn: StatusBarNotification, rankings: RankingMap?): Message? {
@@ -65,6 +82,8 @@ class NotificationDots : NotificationListenerService() {
     companion object {
         val packages = mutableStateOf(emptySet<String>())
         val messages = mutableStateOf(emptyList<Message>())
+        val nav = mutableStateOf<Nav?>(null)
+        private val NAV_APPS = setOf("com.google.android.apps.maps", "com.waze")
         private var instance: NotificationDots? = null
 
         fun dismiss(m: Message) { runCatching { instance?.cancelNotification(m.key) } }

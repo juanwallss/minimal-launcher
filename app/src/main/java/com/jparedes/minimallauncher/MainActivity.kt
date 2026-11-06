@@ -348,6 +348,10 @@ class MainActivity : ComponentActivity() {
                 Message("test2", packageName, "x", "", 0, null, emptyList(), emptyList(), null),
             )
         }
+        // debug: --ez nav_test true|false fakes the maps app's turn-by-turn card in driving mode
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("nav_test"))
+            NotificationDots.nav.value = if (!intent.getBooleanExtra("nav_test", false)) null else
+                Nav("300 m · turn right", "Av. Reforma", "12 min · 4.2 km · arrive 18:42", null, null)
         // debug: --ez drive true|false switches driving mode
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("drive"))
             Drive.set(this, intent.getBooleanExtra("drive", false))
@@ -648,6 +652,7 @@ class MainActivity : ComponentActivity() {
                 homeAddress = Look.homeAddress,
                 workAddress = Look.workAddress,
                 contacts = Look.driveContacts,
+                quickTo = Look.driveContacts.firstOrNull { it.number == Look.quickTo },
                 onNavigate = ::navigate,
                 onCall = { call(it.number) },
                 onDial = { safeStart(Intent(Intent.ACTION_DIAL)) },

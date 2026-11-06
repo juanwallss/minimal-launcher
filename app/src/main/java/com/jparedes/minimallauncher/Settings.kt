@@ -104,6 +104,8 @@ internal object Look {
     var homeAddress by mutableStateOf("")
     var workAddress by mutableStateOf("")
     var driveContacts by mutableStateOf(emptyList<DriveContact>())
+    var quickTo by mutableStateOf<String?>(null)          // number of the drive contact that gets quick WhatsApp messages
+    var quickMsgs by mutableStateOf(emptyList<String>())  // exactly 3, or empty = the defaults in the phone's language
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
     var barLeft by mutableStateOf(false)   // side bar on the left edge (left-handed)
     var font by mutableIntStateOf(0)       // index in FONTS
@@ -165,6 +167,8 @@ internal object Look {
         workAddress = p.getString("workAddress", "")!!
         driveContacts = p.getString("driveContacts", "")!!.split("\n")
             .mapNotNull { line -> line.split("\t").takeIf { it.size == 2 }?.let { DriveContact(it[0], it[1]) } }
+        quickTo = p.getString("quickTo", null)
+        quickMsgs = p.getString("quickMsgs", "")!!.split("\n").takeIf { it.size == 3 } ?: emptyList()
         GESTURE_DEFAULTS.forEach { (g, default) -> gestures[g] = p.getString("g_$g", default)!! }
     }
 
@@ -175,6 +179,7 @@ internal object Look {
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
+            .putString("quickTo", quickTo).putString("quickMsgs", quickMsgs.joinToString("\n"))
         gestures.forEach { (g, action) -> e.putString("g_$g", action) }
         e.apply()
     }
@@ -614,13 +619,23 @@ private fun DriveSettings(set: (() -> Unit) -> Unit, onAskBluetooth: () -> Unit,
         Look.driveContacts.forEach { c -> Choice("${c.name.lowercase()}  ×", true) { set { Look.driveContacts = Look.driveContacts - c } } }
         if (Look.driveContacts.size < 4) Choice(stringResource(R.string.s_add_contact), false, onClick = onPickContact)
     }
+    if (Look.driveContacts.isNotEmpty()) Section(stringResource(R.string.s_quick)) {
+        Choice(stringResource(R.string.s_bg_none), Look.driveContacts.none { it.number == Look.quickTo }) { set { Look.quickTo = null } }
+        Look.driveContacts.forEach { c -> Choice(c.name.lowercase(), Look.quickTo == c.number) { set { Look.quickTo = c.number } } }
+    }
+    if (Look.driveContacts.any { it.number == Look.quickTo }) {
+        val msgs = quickMessages()
+        msgs.forEachIndexed { i, m ->
+            AddressField(stringResource(R.string.s_quick_msg, i + 1), m, hint = "") { v -> set { Look.quickMsgs = msgs.toMutableList().also { it[i] = v.replace("\n", " ") } } }
+        }
+    }
     Section(stringResource(R.string.s_drive_now)) {
         Choice(stringResource(R.string.s_try), Drive.active) { Drive.set(ctx, true); onClose() }
     }
 }
 
 @Composable
-private fun AddressField(label: String, value: String, onChange: (String) -> Unit) {
+private fun AddressField(label: String, value: String, hint: String = stringResource(R.string.s_addr_hint), onChange: (String) -> Unit) {
     Column(Modifier.padding(top = 30.dp)) {
         BasicText(label, style = SmallText.copy(fontSize = 13.sp))
         BasicTextField(
@@ -630,7 +645,7 @@ private fun AddressField(label: String, value: String, onChange: (String) -> Uni
             cursorBrush = SolidColor(Fg),
             singleLine = true,
             decorationBox = { inner ->
-                Box { if (value.isEmpty()) BasicText(stringResource(R.string.s_addr_hint), style = RowText.copy(fontSize = 19.sp, color = Dim)); inner() }
+                Box { if (value.isEmpty()) BasicText(hint, style = RowText.copy(fontSize = 19.sp, color = Dim)); inner() }
             },
         )
     }

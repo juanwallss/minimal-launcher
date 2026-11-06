@@ -179,4 +179,11 @@
     <string name="ob_why_usage">recent apps row</string>
     <string name="ob_why_calendar">your next event under the time</string>
     <string name="ob_why_location">the weather (city level)</string>
+    <string name="drive_quick">whatsapp to %1$s</string>
+    <string name="drive_navigating">navigating</string>
+    <string name="s_quick">quick messages (whatsapp)</string>
+    <string name="s_quick_msg">message %1$d</string>
+    <string name="q_1">On my way</string>
+    <string name="q_2">Almost there</string>
+    <string name="q_3">Traffic, I\'ll text you in a bit</string>
 </resources>

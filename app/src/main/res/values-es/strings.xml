@@ -179,4 +179,11 @@
     <string name="ob_why_usage">fila de apps recientes</string>
     <string name="ob_why_calendar">tu próximo evento bajo la hora</string>
     <string name="ob_why_location">el clima (a nivel ciudad)</string>
+    <string name="drive_quick">whatsapp a %1$s</string>
+    <string name="drive_navigating">navegando</string>
+    <string name="s_quick">mensajes rápidos (whatsapp)</string>
+    <string name="s_quick_msg">mensaje %1$d</string>
+    <string name="q_1">Ya voy en camino</string>
+    <string name="q_2">Voy llegando</string>
+    <string name="q_3">Hay tráfico, en un rato te aviso</string>
 </resources>

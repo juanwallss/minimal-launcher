@@ -35,7 +35,7 @@ Para volver a tu launcher anterior: Ajustes → Aplicaciones → Aplicaciones pr
 - **Bajo la hora**, lo que elijas: fecha, clima, modo de sonido, wifi/datos, batería, próxima alarma, próximo evento, notificaciones.
 - **Responder mensajes desde el inicio** (WhatsApp, Telegram, SMS…) con respuestas sugeridas.
 - **Mini reproductor** cuando suena música.
-- **Recientes**, **apps ocultas**, fondo propio (foto en blanco y negro o el del sistema), widgets opcionales y **modo conducción**.
+- **Recientes**, **apps ocultas**, fondo propio (foto en blanco y negro o el del sistema), widgets opcionales y **modo conducción**: reproductor grande, la próxima vuelta de Google Maps o Waze en pantalla, llamadas y mensajes rápidos de WhatsApp a un contacto.
 
 ## Cómo se usa
 
