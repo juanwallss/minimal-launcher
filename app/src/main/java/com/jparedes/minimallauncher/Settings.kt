@@ -107,6 +107,7 @@ internal object Look {
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
     var barLeft by mutableStateOf(false)   // side bar on the left edge (left-handed)
     var font by mutableIntStateOf(0)       // index in FONTS
+    var onboarded by mutableStateOf(true)  // first-run introduction seen (false only on a fresh install)
     var barHaptics by mutableIntStateOf(2) // letter bar vibration: 0 off · 1 soft · 2 normal · 3 strong
 
     // what goes under the time
@@ -146,6 +147,7 @@ internal object Look {
         barLeft = p.getBoolean("barLeft", false)
         barHaptics = p.getInt("barHaptics", 2)
         font = p.getInt("font", 0)
+        onboarded = p.getBoolean("onboarded", false)
         // saved as what's turned OFF, so items added later show up by default
         fun list(k: String) = p.getString(k, "")!!.split(",").filter { it.isNotEmpty() }.toSet()
         info = when {
@@ -169,7 +171,7 @@ internal object Look {
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putString("infoOff", (INFO_ALL - info).joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
+            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putBoolean("onboarded", onboarded).putString("infoOff", (INFO_ALL - info).joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
@@ -484,11 +486,11 @@ private fun GesturesPage(set: (() -> Unit) -> Unit, apps: List<App>, pickApp: (S
     }
 }
 
-private class PermissionState(val label: Int, val on: Boolean, val open: Intent)
+internal class PermissionState(val label: Int, val on: Boolean, val open: Intent)
 
 /** Every optional permission the launcher uses, whether it's on, and where to change it. */
 @Composable
-private fun permissionStates(resumeTick: Int): List<PermissionState> {
+internal fun permissionStates(resumeTick: Int): List<PermissionState> {
     val ctx = LocalContext.current
     return remember(resumeTick, Drive.permTick) {
         fun granted(p: String) = ctx.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED

@@ -251,6 +251,8 @@ class MainActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("launcher", MODE_PRIVATE) }
     private var favorites by mutableStateOf(emptyList<String>()) // ordered app ids
     private var resumes by mutableStateOf(0) // bumps on every resume so the status line refreshes
+    private val askAny = registerForActivityResult(ActivityResultContracts.RequestPermission()) { resumes++ }
+    private val askHome = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { resumes++ }
     private val askCalendar = registerForActivityResult(ActivityResultContracts.RequestPermission()) { resumes++ }
 
     // --- Widget area: one paged space. Pages are "w:<appWidgetId>" (other apps) or "n:<kind>" (built-in, see NativeWidgets.kt)
@@ -326,6 +328,7 @@ class MainActivity : ComponentActivity() {
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             intent.getStringExtra("theme")?.let { Look.theme = it }
             if (intent.hasExtra("font")) Look.font = intent.getIntExtra("font", 0)
+            if (intent.getBooleanExtra("onboarding", false)) Look.onboarded = false
             if (intent.hasExtra("bar_left")) Look.barLeft = intent.getBooleanExtra("bar_left", false)
         }
         // debug: --ez msg_test true shows a fake chat in the message card (gone with the next real notification change)
@@ -613,7 +616,12 @@ class MainActivity : ComponentActivity() {
                 Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = if (Look.gray) Grayscale else null)
             }
             if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(Bg.copy(alpha = Look.dim / 100f)))
-            AnimatedContent(
+            if (!Look.onboarded) Onboarding(
+                resumeTick = resumes,
+                onRequest = { askAny.launch(it) },
+                onMakeHome = { i -> runCatching { askHome.launch(i) }.onFailure { safeStart(Intent(Settings.ACTION_HOME_SETTINGS)) } },
+                onDone = { Look.onboarded = true; Look.save() },
+            ) else AnimatedContent(
                 settingsOpen,
                 transitionSpec = {
                     (fadeIn(tween(260)) + slideInVertically(tween(260)) { if (targetState) it / 12 else -it / 12 }) togetherWith fadeOut(tween(180))

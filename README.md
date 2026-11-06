@@ -23,6 +23,7 @@ Launcher de Android minimalista: un reloj, una barra de letras y nada más. Icon
 | **Mantener pulsada** la fecha | Ajustes de acceso a notificaciones (para los puntos) |
 | **Atrás** o **Inicio** | Vuelve a la vista limpia |
 
+- La primera vez que lo abres, una **introducción** de 4 pasos te ayuda a ponerlo como inicio, explica los gestos y ofrece los permisos opcionales (todo se puede saltar).
 - Las **apps ocultas** no salen en la lista ni en la barra, pero sí en la búsqueda (en gris); desde su menú puedes volver a mostrarlas.
 - Un **•** junto a una app indica que tiene notificaciones.
 - **Personalizar** (mantener pulsada la hora → apariencia): fuente (Jost, Fraunces, JetBrains Mono o Space Grotesk), estilo de reloj (fino, grueso, día, partido, analógico, apilado, progreso del día, binario), **tema** (un color de acento: neutro, tomado del fondo de pantalla, ámbar, salvia, mar, rosa o lila), fondo y tamaños. En *inicio*: la barra de letras puede ir a la derecha, a la izquierda (zurdos) o abajo, con vibración apagada, suave, normal o fuerte; y eliges qué va bajo la hora (fecha, clima, modo de sonido, wifi / datos, batería, próxima alarma, próximo evento, notificaciones).

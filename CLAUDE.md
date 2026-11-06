@@ -56,6 +56,7 @@ personal content, and delete the image afterwards. Don't put the owner's app lis
 | `NotificationDots.kt` | Notification listener: which packages have notifications (dots, `• n` count), plus in-memory chat `Message`s (reply action, app actions, system smart replies from `Ranking`) and `reply`/`send` helpers — also grants media-session access for the music widget. |
 | `MessageCard.kt` | Home-view card for the newest chat notification: actions, suggested replies, free reply field. Debug: `--ez msg_test true` shows a fake chat. |
 | `Clocks.kt` | `ClockStyle` + `ClockFace`: thin, bold, day, split, analog, stacked, day progress, binary. Debug extras: `--ei clock_style N`, `--es theme sea`, `--ez bar_left true`. |
+| `Onboarding.kt` | First-run intro (welcome · make it home via `RoleManager` · how it works · optional permissions). Shown while `Look.onboarded` is false. Debug: `--ez onboarding true`. |
 | `res/values/strings.xml` + `values-es/` | **Every visible string**, English base + Spanish. Add new strings to both. |
 | `res/values/themes.xml` | Transparent window theme — see gotchas. |
 
@@ -64,7 +65,7 @@ personal content, and delete the image afterwards. Don't put the owner's app lis
 All in `SharedPreferences("launcher")`: `favOrder` (ordered favorites), `hidden`, `pages` (widget area, see below),
 `recent` (launcher-opened history), `recentClearedAt` / `rd:<pkg>` (recents clearing cut-offs), `weather` (cached
 JSON), `lastPlayer`, and the `Look` keys (`bg`, `bgDim` 80–98, `bgGray`, `clockSize`, `textSize`, `clock24`,
-`barBottom`, `barLeft`, `barHaptics` (0–3), `font` (index in `FONTS`: jost, fraunces, jetbrains mono, space grotesk — `Thin` returns the chosen one), `infoOff` (comma list of what's hidden under the time — stored as OFF so new items appear by default; old `info` key migrated), `theme` (none|wall|amber|sage|sea|rose|lilac), `showRecents`, `showMessages`, `showWidgets`, `g_<gesture>`). Photo background is copied to `filesDir/background.jpg`.
+`barBottom`, `barLeft`, `barHaptics` (0–3), `onboarded`, `font` (index in `FONTS`: jost, fraunces, jetbrains mono, space grotesk — `Thin` returns the chosen one), `infoOff` (comma list of what's hidden under the time — stored as OFF so new items appear by default; old `info` key migrated), `theme` (none|wall|amber|sage|sea|rose|lilac), `showRecents`, `showMessages`, `showWidgets`, `g_<gesture>`). Photo background is copied to `filesDir/background.jpg`.
 
 Widget area pages are strings: `w:<appWidgetId>` (other apps' widgets) or `n:agenda|n:music|n:weather` (built-in).
 Gesture actions: `none|lock|notifications|search|camera|torch|app:<pkg>/<activity>`.
