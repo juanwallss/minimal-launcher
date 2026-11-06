@@ -182,12 +182,13 @@ fun DriveScreen(
 
     }
     val navAndCalls: @Composable () -> Unit = {
-        // navigate
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // navigate (while already navigating, only "nearby" stays: room for the nav card and the player)
+        if (NotificationDots.nav.value == null) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             BigButton(stringResource(R.string.drive_home), dim = homeAddress.isBlank()) { if (homeAddress.isBlank()) onSetup() else onNavigate(homeAddress) }
             BigButton(stringResource(R.string.drive_work), dim = workAddress.isBlank()) { if (workAddress.isBlank()) onSetup() else onNavigate(workAddress) }
             BigButton(stringResource(R.string.drive_map)) { onNavigate(null) }
         }
+        Nearby()
         quickTo?.let { QuickMessages(it) }
 
         // call: up to 4 favorites (2 per row) + dialer
@@ -253,6 +254,36 @@ private fun NavCard(n: Nav, modifier: Modifier = Modifier) {
     }
 }
 
+/** Large outlined pill for a horizontal row of short actions. */
+@Composable
+private fun BigPill(label: String, onClick: () -> Unit) = Box(
+    Modifier.height(64.dp).clip(RoundedCornerShape(20.dp)).border(1.dp, Fg, RoundedCornerShape(20.dp))
+        .clickable(onClick = onClick).padding(horizontal = 22.dp),
+    contentAlignment = Alignment.Center,
+) { BasicText(label, style = RowText.copy(fontSize = 18.sp), maxLines = 1) }
+
+/** "nearby": gas, coffee, parking — opens the maps app searching around you. */
+@Composable
+private fun Nearby() {
+    val ctx = LocalContext.current
+    Column {
+        BasicText(stringResource(R.string.drive_nearby), style = SmallText)
+        Row(
+            Modifier.padding(top = 10.dp).fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            listOf(R.string.near_gas, R.string.near_coffee, R.string.near_parking).forEach { id ->
+                val label = stringResource(id)
+                BigPill(label) {
+                    runCatching {
+                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(label)}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** "whatsapp to …" and the three quick messages as big pills; a sent one shows "sent ✓" for a moment. */
 @Composable
 private fun QuickMessages(to: DriveContact) {
@@ -266,13 +297,7 @@ private fun QuickMessages(to: DriveContact) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             quickMessages().filter { it.isNotBlank() }.forEach { text ->
-                Box(
-                    Modifier.height(64.dp).clip(RoundedCornerShape(20.dp)).border(1.dp, Fg, RoundedCornerShape(20.dp))
-                        .clickable { if (Drive.quickSend(ctx, to, text)) sent = text }.padding(horizontal = 22.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    BasicText(if (sent == text) stringResource(R.string.msg_sent) else text, style = RowText.copy(fontSize = 18.sp), maxLines = 1)
-                }
+                BigPill(if (sent == text) stringResource(R.string.msg_sent) else text) { if (Drive.quickSend(ctx, to, text)) sent = text }
             }
         }
     }

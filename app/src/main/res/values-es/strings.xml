@@ -186,4 +186,8 @@
     <string name="q_1">Ya voy en camino</string>
     <string name="q_2">Voy llegando</string>
     <string name="q_3">Hay tráfico, en un rato te aviso</string>
+    <string name="drive_nearby">cerca de mí</string>
+    <string name="near_gas">gasolinera</string>
+    <string name="near_coffee">café</string>
+    <string name="near_parking">estacionamiento</string>
 </resources>

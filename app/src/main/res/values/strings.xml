@@ -186,4 +186,8 @@
     <string name="q_1">On my way</string>
     <string name="q_2">Almost there</string>
     <string name="q_3">Traffic, I\'ll text you in a bit</string>
+    <string name="drive_nearby">nearby</string>
+    <string name="near_gas">gas station</string>
+    <string name="near_coffee">coffee</string>
+    <string name="near_parking">parking</string>
 </resources>
