@@ -523,8 +523,9 @@ class MainActivity : ComponentActivity() {
                         Crossfade(clean, animationSpec = tween(220), label = "home") { isClean ->
                             if (isClean) WidgetArea()
                             else key(letter, q == null) { // fresh scroll position (and entrance animation) per letter / search
+                                val openedAt = remember { SystemClock.uptimeMillis() }
                                 LazyColumn(Modifier.fadeEdges()) {
-                                    itemsIndexed(listed, key = { _, app -> app.id }) { i, app -> Box(Modifier.enterAnim(i)) { AppRow(app) } }
+                                    itemsIndexed(listed, key = { _, app -> app.id }) { i, app -> Box(Modifier.enterAnim(i, openedAt)) { AppRow(app) } }
                                 }
                             }
                         }
@@ -1132,17 +1133,17 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
     }
 }
 
-/** Staggered entrance for list rows: fade in while rising a little. Plays once per row (survives scrolling). */
+/**
+ * Staggered entrance for list rows: fade in while rising a little — once, when the list opens.
+ * Rows first composed later than that (scrolled into view) just appear, so scrolling never animates.
+ */
 @Composable
-private fun Modifier.enterAnim(index: Int): Modifier {
-    var shown by rememberSaveable { mutableStateOf(false) }
-    val progress = remember { Animatable(if (shown) 1f else 0f) }
-    LaunchedEffect(Unit) {
-        if (!shown) {
-            delay(minOf(index, 10) * 28L)
-            progress.animateTo(1f, tween(280, easing = FastOutSlowInEasing))
-            shown = true
-        }
+private fun Modifier.enterAnim(index: Int, listOpenedAt: Long): Modifier {
+    val animate = remember { SystemClock.uptimeMillis() - listOpenedAt < 150 } // part of the first screenful
+    val progress = remember { Animatable(if (animate) 0f else 1f) }
+    if (animate) LaunchedEffect(Unit) {
+        delay(minOf(index, 10) * 28L)
+        progress.animateTo(1f, tween(280, easing = FastOutSlowInEasing))
     }
     return graphicsLayer { alpha = progress.value; translationY = (1f - progress.value) * 18.dp.toPx() }
 }
