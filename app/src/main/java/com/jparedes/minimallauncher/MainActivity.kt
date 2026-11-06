@@ -64,6 +64,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -707,10 +709,26 @@ class MainActivity : ComponentActivity() {
             val messageCard: @Composable () -> Unit = {
                     // newest chat notification, answerable in place; only on the clean home view
                     val msgs = NotificationDots.messages.value
-                    AnimatedVisibility(clean && Look.showMessages && msgs.isNotEmpty(), enter = fadeIn(tween(250)) + expandVertically(tween(250)), exit = fadeOut(tween(200)) + shrinkVertically(tween(200))) {
-                        msgs.firstOrNull()?.let { m ->
-                            val app = apps.firstOrNull { it.pkg == m.pkg }
-                            MessageCard(m, msgs.size - 1, app?.let(::iconOf), app?.label ?: m.pkg, onMore = ::expandNotifications, modifier = Modifier.padding(end = 28.dp, bottom = 16.dp))
+                    // appears: room opens, card drops in and settles; a newer chat pushes the old card up and out
+                    AnimatedVisibility(
+                        clean && Look.showMessages && msgs.isNotEmpty(),
+                        enter = expandVertically(tween(320, easing = FastOutSlowInEasing)) + fadeIn(tween(260, delayMillis = 80)) +
+                            slideInVertically(spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow)) { -it / 5 } +
+                            scaleIn(tween(320, easing = FastOutSlowInEasing), initialScale = 0.94f),
+                        exit = fadeOut(tween(160)) + scaleOut(tween(200), targetScale = 0.96f) + shrinkVertically(tween(240, delayMillis = 60)),
+                    ) {
+                        AnimatedContent(
+                            msgs.firstOrNull(), contentKey = { it?.key },
+                            transitionSpec = {
+                                (fadeIn(tween(240, delayMillis = 60)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { it / 4 }) togetherWith
+                                    (fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it / 4 }) using SizeTransform(clip = false)
+                            },
+                            label = "msg",
+                        ) { m ->
+                            if (m != null) {
+                                val app = apps.firstOrNull { it.pkg == m.pkg }
+                                MessageCard(m, msgs.size - 1, app?.let(::iconOf), app?.label ?: m.pkg, onMore = ::expandNotifications, modifier = Modifier.padding(end = 28.dp, bottom = 16.dp))
+                            }
                         }
                     }
             }
