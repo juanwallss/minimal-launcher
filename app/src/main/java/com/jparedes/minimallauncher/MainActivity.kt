@@ -50,6 +50,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.Spacer
@@ -121,6 +122,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import kotlin.math.abs
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -199,7 +201,7 @@ internal val TextShadow @Composable get() = if (Look.background == Look.BG_NONE)
 // Jost (variable font, OFL) — one file, instantiated at the weights we use
 @OptIn(ExperimentalTextApi::class)
 internal val Thin = FontFamily(
-    listOf(FontWeight.Thin, FontWeight.ExtraLight, FontWeight.Light, FontWeight.Normal).map {
+    listOf(FontWeight.Thin, FontWeight.ExtraLight, FontWeight.Light, FontWeight.Normal, FontWeight.Bold, FontWeight.Black).map {
         Font(R.font.jost, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
     }
 )
@@ -285,6 +287,9 @@ class MainActivity : ComponentActivity() {
             intent.getIntExtra("wx_test", 0) else null
         moonTestPhase = if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("moon"))
             intent.getFloatExtra("moon", 0f) else null
+        // debug: --ei clock_style <0..3> previews a clock face without saving it (Home press keeps it until restart)
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("clock_style"))
+            Look.clockStyle = intent.getIntExtra("clock_style", 0)
         // debug: --ez drive true|false switches driving mode
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("drive"))
             Drive.set(this, intent.getBooleanExtra("drive", false))
@@ -921,20 +926,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Fonts put blank space (side bearing) before the first glyph, and it grows with size —
-    // so the big thin clock looked indented next to the date. Measure the real ink edge and pull it back.
-    private val inkPaint by lazy { android.graphics.Paint().apply { typeface = resources.getFont(R.font.jost) } }
-
-    @Composable
-    private fun Modifier.alignInk(text: String, size: TextUnit, weight: Int): Modifier {
-        val px = with(LocalDensity.current) { size.toPx() }
-        val left = remember(text, px, weight) {
-            inkPaint.textSize = px
-            inkPaint.fontVariationSettings = "'wght' $weight"
-            android.graphics.Rect().also { inkPaint.getTextBounds(text, 0, text.length, it) }.left
-        }
-        return offset { IntOffset(-left, 0) }
-    }
 
     // Tap time → alarms, tap date → calendar, long-press date → notification-dot access
     @Composable
@@ -947,36 +938,26 @@ class MainActivity : ComponentActivity() {
             }
         }
         Column(Modifier.padding(bottom = bottomGap)) {
-            val time = now.format(DateTimeFormatter.ofPattern(if (Look.clock24) "HH:mm" else "h:mm"))
-            Row(verticalAlignment = Alignment.Bottom) {
-                // the new minute rolls in from below while the old one drifts up and fades
-                AnimatedContent(
-                    time,
-                    transitionSpec = {
-                        (slideInVertically(tween(450)) { it / 4 } + fadeIn(tween(450))) togetherWith
-                            (slideOutVertically(tween(350)) { -it / 4 } + fadeOut(tween(300))) using SizeTransform(clip = false)
-                    },
-                    label = "clock",
-                ) { t ->
-                    BasicText(
-                        t,
-                        // tap → alarms, long-press → launcher settings
-                        Modifier.alignInk(t, clockSp.sp, 100).combinedClickable(
-                            interactionSource = null, indication = null,
-                            onLongClick = { settingsOpen = true },
-                        ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
-                        style = TextStyle(color = Fg, fontSize = clockSp.sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
-                    )
-                }
-                if (!Look.clock24) BasicText(
-                    now.format(DateTimeFormatter.ofPattern("a")).lowercase(),
-                    Modifier.padding(start = 10.dp, bottom = (clockSp * 0.2f).dp),
-                    style = SmallText.copy(fontSize = 18.sp),
-                )
+            val style = ClockStyle.entries.getOrElse(Look.clockStyle) { ClockStyle.THIN }
+            val timeText = now.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase()
+            val shortDate = now.format(DateTimeFormatter.ofPattern("d MMM")).trimEnd('.')
+            // big element: tap → alarms, long-press → launcher settings
+            ClockFace(
+                style, now, clockSp,
+                band = listOfNotNull(timeText.uppercase(), shortDate.uppercase(), weather?.let { "${it.temp}°" }),
+                actions = Modifier.combinedClickable(
+                    interactionSource = null, indication = null,
+                    onLongClick = { settingsOpen = true },
+                ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
+            )
+            // line under it: the date (DAY also carries the time; SPLIT already shows time/date/temp in its band)
+            val date = when (style) {
+                ClockStyle.DAY -> "$timeText  ·  ${shortDate.lowercase()}"
+                ClockStyle.SPLIT -> ""
+                else -> now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
             }
-            val date = now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                BasicText(
+            Row(Modifier.padding(top = if (style == ClockStyle.SPLIT) 6.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (date.isNotEmpty()) BasicText(
                     date,
                     Modifier.alignInk(date, 16.sp, 400).combinedClickable(
                         interactionSource = null, indication = null,
@@ -987,7 +968,7 @@ class MainActivity : ComponentActivity() {
                 // current temperature with a sun / cloud / rain glyph; tap refreshes it
                 val wx = weather
                 val wxCode = weatherTestCode ?: wx?.code
-                if (wx != null && wxCode != null) Row(
+                if (wx != null && wxCode != null && style != ClockStyle.SPLIT) Row(
                     Modifier.padding(start = 14.dp).clickable(interactionSource = null, indication = null) { refreshWeather(force = true) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1000,7 +981,7 @@ class MainActivity : ComponentActivity() {
                 // sound · vibrate · silent; tap shows the system volume panel (where the mode can be switched)
                 RingerIcon(
                     ringerMode(), Dim,
-                    Modifier.padding(start = 12.dp).size(26.dp).clip(CircleShape)
+                    Modifier.padding(start = if (date.isEmpty()) 0.dp else 12.dp).size(26.dp).clip(CircleShape)
                         .clickable(interactionSource = null, indication = null) {
                             audio.adjustStreamVolume(AudioManager.STREAM_RING, AudioManager.ADJUST_SAME, AudioManager.FLAG_SHOW_UI)
                         }
@@ -1215,16 +1196,30 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
     val fg = Fg
     val dim = Dim
     val shadow = TextShadow
+    var stripLen by remember { mutableFloatStateOf(0f) }
     @Composable
-    fun Letter(l: String) {
+    fun Letter(l: String, i: Int) {
         val on = l == selected
         val scale by animateFloatAsState(if (on) 1.55f else 1f, spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMediumLow), label = "letter")
-        val color by animateColorAsState(if (on) fg else dim, tween(160), label = "letterColor")
+        val base by animateColorAsState(if (on) fg else dim, tween(160), label = "letterColor")
+        // Bend: letters near the finger lean toward the screen (left for the side bar, up for the bottom one),
+        // falling off smoothly (gaussian over ~2–3 letters) and easing back when the finger lifts.
+        val t = touch
+        val near = if (t == null || stripLen <= 0f) 0f else {
+            val cell = stripLen / letters.size
+            val d = (t - (i + 0.5f) * cell) / (cell * 2.4f)
+            kotlin.math.exp(-d * d)
+        }
+        val bend by animateFloatAsState(near, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessHigh), label = "bend") // tracks the finger closely
         BasicText(
             l.lowercase(),
-            Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
+            Modifier.graphicsLayer {
+                val s = scale * (1f + 0.18f * bend)
+                scaleX = s; scaleY = s
+                if (horizontal) translationY = -bend * 14.dp.toPx() else translationX = -bend * 24.dp.toPx()
+            },
             style = TextStyle(
-                color = color, fontFamily = Thin, shadow = shadow, fontSize = if (tight && !horizontal) 11.sp else 13.sp,
+                color = if (on) base else androidx.compose.ui.graphics.lerp(base, fg, 0.55f * bend), fontFamily = Thin, shadow = shadow, fontSize = if (tight && !horizontal) 11.sp else 13.sp,
                 fontWeight = if (on) FontWeight.Normal else FontWeight.Light,
             ),
         )
@@ -1232,13 +1227,13 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
     Box(if (horizontal) Modifier.fillMaxWidth().height(40.dp) else Modifier.width(44.dp).fillMaxHeight()) {
         if (horizontal) {
             // fixed-width cells so the strip doesn't shift when the selected letter grows
-            Row(Modifier.fillMaxSize().then(strip), verticalAlignment = Alignment.CenterVertically) {
-                letters.forEach { l -> Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Letter(l) } }
+            Row(Modifier.fillMaxSize().onSizeChanged { stripLen = it.width.toFloat() }.then(strip), verticalAlignment = Alignment.CenterVertically) {
+                letters.forEachIndexed { i, l -> Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { Letter(l, i) } }
             }
         } else {
             // fixed-height cells: every letter fits and the finger→letter mapping (pos / height * count) matches the drawing
-            Column(Modifier.fillMaxSize().padding(vertical = pad).then(strip)) {
-                letters.forEach { l -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Letter(l) } }
+            Column(Modifier.fillMaxSize().padding(vertical = pad).onSizeChanged { stripLen = it.height.toFloat() }.then(strip)) {
+                letters.forEachIndexed { i, l -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Letter(l, i) } }
             }
         }
         // Bubble: grows out of the strip (from under the finger) to its spot beside it, and sinks back on release.
@@ -1263,7 +1258,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
                         val b = bubble.toPx()
                         if (horizontal) {
                             val fromY = (40.dp.toPx() - b) / 2         // centered on the strip
-                            val toY = -(b + 14.dp.toPx())              // resting spot above it
+                            val toY = -(b + 26.dp.toPx())              // resting spot above it (clear of the bent letters)
                             IntOffset((lastPos - b / 2).toInt(), (fromY + (toY - fromY) * p).toInt())
                         } else {
                             val fromX = (44.dp.toPx() - b) / 2         // centered on the strip
@@ -1277,7 +1272,7 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
                         scaleX = scale; scaleY = scale
                         alpha = p.coerceIn(0f, 1f)
                     }
-                    .size(bubble)
+                    .requiredSize(bubble) // the strip is only 44dp wide / 40dp tall: plain size() got squashed into an oval
                     .background(fg, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {

@@ -89,6 +89,7 @@ internal object Look {
     var dim by mutableIntStateOf(85)       // % of the theme color laid over the background
     var gray by mutableStateOf(true)       // photo in black & white
     var clockSize by mutableIntStateOf(1)  // 0 small · 1 medium · 2 large
+    var clockStyle by mutableIntStateOf(0) // ClockStyle ordinal
     var textSize by mutableIntStateOf(1)
     var clock24 by mutableStateOf(true)
     var showRecents by mutableStateOf(true)
@@ -116,6 +117,7 @@ internal object Look {
         dim = p.getInt("bgDim", 85).coerceIn(DIM_MIN, DIM_MAX)
         gray = p.getBoolean("bgGray", true)
         clockSize = p.getInt("clockSize", 1)
+        clockStyle = p.getInt("clockStyle", 0)
         textSize = p.getInt("textSize", 1)
         clock24 = p.getBoolean("clock24", DateFormat.is24HourFormat(ctx)) // default follows the phone
         barBottom = p.getBoolean("barBottom", false)
@@ -132,7 +134,7 @@ internal object Look {
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("showRecents", showRecents)
+            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("showRecents", showRecents)
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
@@ -269,7 +271,7 @@ private fun Categories(apps: List<App>, resumeTick: Int, open: (SettingsPage) ->
     val bg = stringResource(when (Look.background) { Look.BG_PHOTO -> R.string.s_bg_photo_short; Look.BG_SYSTEM -> R.string.s_bg_system; else -> R.string.s_bg_none })
     val perms = permissionStates(resumeTick)
     val rows = listOf(
-        SettingsPage.APPEARANCE to listOfNotNull(bg, if (Look.background != Look.BG_NONE) "${Look.dim} %" else null,
+        SettingsPage.APPEARANCE to listOfNotNull(stringResource(ClockStyle.entries.getOrElse(Look.clockStyle) { ClockStyle.THIN }.label), bg, if (Look.background != Look.BG_NONE) "${Look.dim} %" else null,
             stringResource(R.string.s_clock) + " " + sizes[Look.clockSize], if (Look.clock24) "24 h" else "12 h").joinToString("  ·  "),
         SettingsPage.HOME to listOf(
             stringResource(R.string.s_bar) + " " + stringResource(if (Look.barBottom) R.string.s_bar_bottom else R.string.s_bar_side),
@@ -318,6 +320,9 @@ private fun AppearancePage(set: (() -> Unit) -> Unit, onPickPhoto: () -> Unit, o
         Choice(stringResource(R.string.s_on), Look.gray) { set { Look.gray = true } }
         Choice(stringResource(R.string.s_off), !Look.gray) { set { Look.gray = false } }
     }
+    Section(stringResource(R.string.s_clock_style)) {
+        ClockStyle.entries.forEach { st -> Choice(stringResource(st.label), Look.clockStyle == st.ordinal) { set { Look.clockStyle = st.ordinal } } }
+    }
     Section(stringResource(R.string.s_clock)) {
         sizes.forEachIndexed { i, label -> Choice(label, Look.clockSize == i) { set { Look.clockSize = i } } }
     }
@@ -352,11 +357,16 @@ private fun Preview(background: ImageBitmap?) {
         if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(bg.copy(alpha = Look.dim / 100f)))
         val now = remember { java.time.LocalDateTime.now() }
         Column(Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
-            BasicText(
-                now.format(java.time.format.DateTimeFormatter.ofPattern(if (Look.clock24) "HH:mm" else "h:mm")),
-                style = TextStyle(color = Fg, fontSize = (Look.clockSp * 0.55f).sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
-            )
-            BasicText(now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase(), style = SmallText.copy(fontSize = 12.sp))
+            val style = ClockStyle.entries.getOrElse(Look.clockStyle) { ClockStyle.THIN }
+            val time = now.format(java.time.format.DateTimeFormatter.ofPattern(Look.timePattern())).lowercase()
+            val short = now.format(java.time.format.DateTimeFormatter.ofPattern("d MMM")).trimEnd('.')
+            ClockFace(style, now, Look.clockSp * 0.55f, band = listOf(time.uppercase(), short.uppercase()))
+            val line = when (style) {
+                ClockStyle.DAY -> "$time  ·  ${short.lowercase()}"
+                ClockStyle.SPLIT -> ""
+                else -> now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
+            }
+            if (line.isNotEmpty()) BasicText(line, style = SmallText.copy(fontSize = 12.sp))
         }
     }
 }

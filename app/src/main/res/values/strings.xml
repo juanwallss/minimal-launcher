@@ -116,4 +116,9 @@
     <string name="p_calls">phone calls</string>
     <string name="state_on">on</string>
     <string name="state_off">off</string>
+    <string name="s_clock_style">clock style</string>
+    <string name="st_thin">thin</string>
+    <string name="st_bold">bold</string>
+    <string name="st_day">day</string>
+    <string name="st_split">split</string>
 </resources>

@@ -116,4 +116,9 @@
     <string name="p_calls">llamadas</string>
     <string name="state_on">activado</string>
     <string name="state_off">desactivado</string>
+    <string name="s_clock_style">estilo de reloj</string>
+    <string name="st_thin">fino</string>
+    <string name="st_bold">grueso</string>
+    <string name="st_day">día</string>
+    <string name="st_split">partido</string>
 </resources>
