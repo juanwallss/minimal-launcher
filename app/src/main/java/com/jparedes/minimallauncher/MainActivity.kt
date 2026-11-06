@@ -225,13 +225,19 @@ internal val Dim @Composable get() = when {
 /** Soft halo in the theme color behind text, only when there's an image behind it. */
 internal val TextShadow @Composable get() = if (Look.background == Look.BG_NONE) null else Shadow(Bg.copy(alpha = 0.75f), blurRadius = 10f)
 
-// Jost (variable font, OFL) — one file, instantiated at the weights we use
+// Variable fonts (OFL), one file each, instantiated at the weights we use (settings → appearance → font).
+// Space Grotesk only goes 300–700: thinner/heavier requests clamp to its ends.
+internal val FONTS = listOf("jost" to R.font.jost, "fraunces" to R.font.fraunces, "jetbrains mono" to R.font.jetbrains_mono, "space grotesk" to R.font.space_grotesk)
 @OptIn(ExperimentalTextApi::class)
-internal val Thin = FontFamily(
-    listOf(FontWeight.Thin, FontWeight.ExtraLight, FontWeight.Light, FontWeight.Normal, FontWeight.Bold, FontWeight.Black).map {
-        Font(R.font.jost, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
-    }
-)
+internal val FontFamilies = FONTS.map { (_, res) ->
+    FontFamily(
+        listOf(FontWeight.Thin, FontWeight.ExtraLight, FontWeight.Light, FontWeight.Normal, FontWeight.Bold, FontWeight.Black).map {
+            Font(res, it, variationSettings = FontVariation.Settings(FontVariation.weight(it.weight)))
+        }
+    )
+}
+/** The chosen font (name kept from when it was always thin Jost). */
+internal val Thin get() = FontFamilies.getOrElse(Look.font) { FontFamilies[0] }
 internal val RowText @Composable get() = TextStyle(color = Fg, fontSize = Look.textSp.sp, fontFamily = Thin, fontWeight = FontWeight.Light, letterSpacing = 0.5.sp, shadow = TextShadow)
 internal val Grayscale = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
 internal val SmallText @Composable get() = TextStyle(color = Dim, fontSize = 15.sp, fontFamily = Thin, letterSpacing = 1.sp, shadow = TextShadow)
@@ -319,6 +325,7 @@ class MainActivity : ComponentActivity() {
             Look.clockStyle = intent.getIntExtra("clock_style", 0)
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             intent.getStringExtra("theme")?.let { Look.theme = it }
+            if (intent.hasExtra("font")) Look.font = intent.getIntExtra("font", 0)
             if (intent.hasExtra("bar_left")) Look.barLeft = intent.getBooleanExtra("bar_left", false)
         }
         // debug: --ez msg_test true shows a fake chat in the message card (gone with the next real notification change)

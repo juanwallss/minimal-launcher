@@ -75,6 +75,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,6 +106,7 @@ internal object Look {
     var driveContacts by mutableStateOf(emptyList<DriveContact>())
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
     var barLeft by mutableStateOf(false)   // side bar on the left edge (left-handed)
+    var font by mutableIntStateOf(0)       // index in FONTS
     var barHaptics by mutableIntStateOf(2) // letter bar vibration: 0 off · 1 soft · 2 normal · 3 strong
 
     // what goes under the time
@@ -143,6 +145,7 @@ internal object Look {
         barBottom = p.getBoolean("barBottom", false)
         barLeft = p.getBoolean("barLeft", false)
         barHaptics = p.getInt("barHaptics", 2)
+        font = p.getInt("font", 0)
         info = p.getString("info", null)?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: INFO_DEFAULT.toSet()
         theme = p.getString("theme", THEME_NONE)!!
         showRecents = p.getBoolean("showRecents", true)
@@ -160,7 +163,7 @@ internal object Look {
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putString("info", info.joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
+            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putString("info", info.joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
@@ -187,13 +190,13 @@ private fun SectionLabel(title: String) = BasicText(title, style = SmallText.cop
 
 /** Text option; the chosen one is bright with a thin underline. */
 @Composable
-private fun Choice(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun Choice(label: String, selected: Boolean, family: FontFamily? = null, onClick: () -> Unit) {
     val line = Accent
     BasicText(
         label,
         Modifier.clickable(interactionSource = null, indication = null, onClick = onClick).padding(vertical = 4.dp)
             .drawBehind { if (selected) drawLine(line, Offset(0f, size.height + 2.dp.toPx()), Offset(size.width, size.height + 2.dp.toPx()), 1.dp.toPx()) },
-        style = RowText.copy(fontSize = 19.sp, color = if (selected) Fg else Dim),
+        style = RowText.copy(fontSize = 19.sp, color = if (selected) Fg else Dim).let { if (family != null) it.copy(fontFamily = family) else it },
     )
 }
 
@@ -349,7 +352,7 @@ private fun AppearancePage(set: (() -> Unit) -> Unit, onPickPhoto: () -> Unit, o
         Choice(stringResource(R.string.s_bg_none), Look.background == Look.BG_NONE) { set { Look.background = Look.BG_NONE }; onBackgroundChanged() }
         Choice(stringResource(R.string.s_bg_system), Look.background == Look.BG_SYSTEM) { set { Look.background = Look.BG_SYSTEM }; onBackgroundChanged() }
         // tapping "photo…" always opens the picker, so it doubles as "change photo"
-        Choice(stringResource(R.string.s_bg_photo), Look.background == Look.BG_PHOTO, onPickPhoto)
+        Choice(stringResource(R.string.s_bg_photo), Look.background == Look.BG_PHOTO, onClick = onPickPhoto)
     }
     if (Look.background != Look.BG_NONE) Column(Modifier.padding(top = 30.dp)) {
         SectionLabel(stringResource(R.string.s_dim))
@@ -361,6 +364,10 @@ private fun AppearancePage(set: (() -> Unit) -> Unit, onPickPhoto: () -> Unit, o
     }
     Section(stringResource(R.string.s_clock_style)) {
         ClockStyle.entries.forEach { st -> Choice(stringResource(st.label), Look.clockStyle == st.ordinal) { set { Look.clockStyle = st.ordinal } } }
+    }
+    Section(stringResource(R.string.s_font)) {
+        // each name written in its own font
+        FONTS.forEachIndexed { i, (name, _) -> Choice(name, Look.font == i, FontFamilies[i]) { set { Look.font = i } } }
     }
     Section(stringResource(R.string.s_theme)) {
         ThemeChoice(stringResource(R.string.th_none), Look.THEME_NONE, null, set)
@@ -581,7 +588,7 @@ private fun DriveSettings(set: (() -> Unit) -> Unit, onAskBluetooth: () -> Unit,
         val granted = Drive.permTick >= 0 && (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
         if (!granted) {
-            Choice(stringResource(R.string.s_car_pick), false, onAskBluetooth)
+            Choice(stringResource(R.string.s_car_pick), false, onClick = onAskBluetooth)
         } else {
             val bonded = remember(Drive.permTick) {
                 runCatching { ctx.getSystemService(BluetoothManager::class.java).adapter.bondedDevices.toList() }.getOrDefault(emptyList())
@@ -597,7 +604,7 @@ private fun DriveSettings(set: (() -> Unit) -> Unit, onAskBluetooth: () -> Unit,
     AddressField(stringResource(R.string.s_work_addr), Look.workAddress) { v -> set { Look.workAddress = v } }
     Section(stringResource(R.string.s_contacts)) {
         Look.driveContacts.forEach { c -> Choice("${c.name.lowercase()}  ×", true) { set { Look.driveContacts = Look.driveContacts - c } } }
-        if (Look.driveContacts.size < 4) Choice(stringResource(R.string.s_add_contact), false, onPickContact)
+        if (Look.driveContacts.size < 4) Choice(stringResource(R.string.s_add_contact), false, onClick = onPickContact)
     }
     Section(stringResource(R.string.s_drive_now)) {
         Choice(stringResource(R.string.s_try), Drive.active) { Drive.set(ctx, true); onClose() }

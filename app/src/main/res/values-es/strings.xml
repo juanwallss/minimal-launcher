@@ -153,4 +153,5 @@
     <string name="i_event">próximo evento</string>
     <string name="i_notif">notificaciones</string>
     <string name="alarm_at">alarma %1$s</string>
+    <string name="s_font">fuente</string>
 </resources>

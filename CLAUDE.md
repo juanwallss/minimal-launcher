@@ -64,7 +64,7 @@ personal content, and delete the image afterwards. Don't put the owner's app lis
 All in `SharedPreferences("launcher")`: `favOrder` (ordered favorites), `hidden`, `pages` (widget area, see below),
 `recent` (launcher-opened history), `recentClearedAt` / `rd:<pkg>` (recents clearing cut-offs), `weather` (cached
 JSON), `lastPlayer`, and the `Look` keys (`bg`, `bgDim` 80–98, `bgGray`, `clockSize`, `textSize`, `clock24`,
-`barBottom`, `barLeft`, `barHaptics` (0–3), `info` (comma list of what shows under the time), `theme` (none|wall|amber|sage|sea|rose|lilac), `showRecents`, `showMessages`, `showWidgets`, `g_<gesture>`). Photo background is copied to `filesDir/background.jpg`.
+`barBottom`, `barLeft`, `barHaptics` (0–3), `font` (index in `FONTS`: jost, fraunces, jetbrains mono, space grotesk — `Thin` returns the chosen one), `info` (comma list of what shows under the time), `theme` (none|wall|amber|sage|sea|rose|lilac), `showRecents`, `showMessages`, `showWidgets`, `g_<gesture>`). Photo background is copied to `filesDir/background.jpg`.
 
 Widget area pages are strings: `w:<appWidgetId>` (other apps' widgets) or `n:agenda|n:music|n:weather` (built-in).
 Gesture actions: `none|lock|notifications|search|camera|torch|app:<pkg>/<activity>`.

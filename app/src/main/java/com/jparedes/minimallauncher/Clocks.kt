@@ -72,9 +72,10 @@ enum class ClockStyle(val label: Int) {
 @Composable
 fun Modifier.alignInk(text: String, size: TextUnit, weight: Int): Modifier {
     val ctx = LocalContext.current
-    val paint = remember { Paint().apply { typeface = ctx.resources.getFont(R.font.jost) } }
+    val font = Look.font
+    val paint = remember(font) { Paint().apply { typeface = ctx.resources.getFont(FONTS.getOrElse(font) { FONTS[0] }.second) } }
     val px = with(LocalDensity.current) { size.toPx() }
-    val left = remember(text, px, weight) {
+    val left = remember(text, px, weight, paint) {
         paint.textSize = px
         paint.fontVariationSettings = "'wght' $weight"
         Rect().also { paint.getTextBounds(text, 0, text.length, it) }.left
