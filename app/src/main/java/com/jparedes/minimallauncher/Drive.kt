@@ -38,6 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.platform.LocalContext
@@ -115,6 +119,9 @@ fun DriveScreen(
     onDial: () -> Unit,
     onSetup: () -> Unit,
     onExit: () -> Unit,
+    favorites: List<App> = emptyList(),
+    icon: (App) -> ImageBitmap = { error("no icons") },
+    onOpen: (App) -> Unit = {},
 ) {
     val now by produceState(LocalDateTime.now()) {
         while (true) { value = LocalDateTime.now(); delay(1000L * (60 - value.second)) }
@@ -155,6 +162,19 @@ fun DriveScreen(
                     }
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
+            }
+        }
+        // the launcher's favorites, big and in grayscale, to open other apps without leaving driving mode
+        if (favorites.isNotEmpty()) Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            favorites.forEach { app ->
+                Image(
+                    icon(app), app.label,
+                    Modifier.size(60.dp).clip(RoundedCornerShape(16.dp)).clickable { onOpen(app) },
+                    colorFilter = Grayscale,
+                )
             }
         }
     }

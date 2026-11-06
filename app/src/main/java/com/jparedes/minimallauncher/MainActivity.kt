@@ -580,6 +580,9 @@ class MainActivity : ComponentActivity() {
                 onDial = { safeStart(Intent(Intent.ACTION_DIAL)) },
                 onSetup = { settingsOpen = true },
                 onExit = { Drive.set(this@MainActivity, false) },
+                favorites = favorites.mapNotNull { id -> apps.find { it.id == id } },
+                icon = ::iconOf,
+                onOpen = ::open,
             ) else {
             // Pieces shared by the portrait (one column) and landscape (two panes) layouts
             val listPane: @Composable (Modifier) -> Unit = { m ->
