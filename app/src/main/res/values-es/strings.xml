@@ -121,4 +121,9 @@
     <string name="st_bold">grueso</string>
     <string name="st_day">día</string>
     <string name="st_split">partido</string>
+    <string name="s_messages">mensajes</string>
+    <string name="msg_now">ahora</string>
+    <string name="msg_min">%d min</string>
+    <string name="msg_reply">responder</string>
+    <string name="msg_sent">enviado ✓</string>
 </resources>

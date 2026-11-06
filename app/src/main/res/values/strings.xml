@@ -121,4 +121,9 @@
     <string name="st_bold">bold</string>
     <string name="st_day">day</string>
     <string name="st_split">split</string>
+    <string name="s_messages">messages</string>
+    <string name="msg_now">now</string>
+    <string name="msg_min">%d min</string>
+    <string name="msg_reply">reply</string>
+    <string name="msg_sent">sent ✓</string>
 </resources>

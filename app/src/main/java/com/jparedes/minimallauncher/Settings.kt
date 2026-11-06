@@ -93,6 +93,7 @@ internal object Look {
     var textSize by mutableIntStateOf(1)
     var clock24 by mutableStateOf(true)
     var showRecents by mutableStateOf(true)
+    var showMessages by mutableStateOf(true)
     // driving mode
     var carAddress by mutableStateOf<String?>(null)   // Bluetooth MAC of the car; null = no auto start
     var carName by mutableStateOf<String?>(null)
@@ -122,6 +123,7 @@ internal object Look {
         clock24 = p.getBoolean("clock24", DateFormat.is24HourFormat(ctx)) // default follows the phone
         barBottom = p.getBoolean("barBottom", false)
         showRecents = p.getBoolean("showRecents", true)
+        showMessages = p.getBoolean("showMessages", true)
         carAddress = p.getString("carAddress", null)
         carName = p.getString("carName", null)
         homeAddress = p.getString("homeAddress", "")!!
@@ -134,7 +136,7 @@ internal object Look {
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("showRecents", showRecents)
+            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages)
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
@@ -276,6 +278,7 @@ private fun Categories(apps: List<App>, resumeTick: Int, open: (SettingsPage) ->
         SettingsPage.HOME to listOf(
             stringResource(R.string.s_bar) + " " + stringResource(if (Look.barBottom) R.string.s_bar_bottom else R.string.s_bar_side),
             stringResource(R.string.s_recents) + " " + stringResource(if (Look.showRecents) R.string.s_on else R.string.s_off),
+            stringResource(R.string.s_messages) + " " + stringResource(if (Look.showMessages) R.string.s_on else R.string.s_off),
         ).joinToString("  ·  "),
         SettingsPage.GESTURES to listOf("double", "up", "down").map { g -> // map is inline, so composable calls are fine here
             stringResource(GESTURE_NAMES.getValue(g)) + ": " + actionLabel(Look.gestures[g] ?: "none", apps)
@@ -385,6 +388,11 @@ private fun HomePage(set: (() -> Unit) -> Unit) {
         Choice(stringResource(R.string.s_usage), ctx.hasUsageAccess()) {
             runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
+    }
+    // newest chat on the home view, answerable in place (needs notification access)
+    Section(stringResource(R.string.s_messages)) {
+        Choice(stringResource(R.string.show), Look.showMessages) { set { Look.showMessages = true } }
+        Choice(stringResource(R.string.hide), !Look.showMessages) { set { Look.showMessages = false } }
     }
 }
 

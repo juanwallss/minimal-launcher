@@ -290,6 +290,18 @@ class MainActivity : ComponentActivity() {
         // debug: --ei clock_style <0..3> previews a clock face without saving it (Home press keeps it until restart)
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("clock_style"))
             Look.clockStyle = intent.getIntExtra("clock_style", 0)
+        // debug: --ez msg_test true shows a fake chat in the message card (gone with the next real notification change)
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.getBooleanExtra("msg_test", false)) {
+            val pi = android.app.PendingIntent.getBroadcast(this, 0, Intent("test.noop").setPackage(packageName), android.app.PendingIntent.FLAG_MUTABLE)
+            val input = android.app.RemoteInput.Builder("text").build()
+            NotificationDots.messages.value = listOf(
+                Message("test", packageName, "Niklas", "Hi, what's up?", System.currentTimeMillis(),
+                    android.app.Notification.Action.Builder(null, "Reply", pi).addRemoteInput(input).build(),
+                    listOf(android.app.Notification.Action.Builder(null, "Mark as read", pi).build(), android.app.Notification.Action.Builder(null, "Mute", pi).build()),
+                    listOf("Nothing much", "Not much, you?", "How are you?"), null),
+                Message("test2", packageName, "x", "", 0, null, emptyList(), emptyList(), null),
+            )
+        }
         // debug: --ez drive true|false switches driving mode
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("drive"))
             Drive.set(this, intent.getBooleanExtra("drive", false))
@@ -645,12 +657,23 @@ class MainActivity : ComponentActivity() {
                         favorites.mapNotNull { id -> apps.find { it.id == id } }.forEach { key(it.id) { FavoriteIcon(it) } }
                     }
             }
+            val messageCard: @Composable () -> Unit = {
+                    // newest chat notification, answerable in place; only on the clean home view
+                    val msgs = NotificationDots.messages.value
+                    AnimatedVisibility(clean && Look.showMessages && msgs.isNotEmpty(), enter = fadeIn(tween(250)) + expandVertically(tween(250)), exit = fadeOut(tween(200)) + shrinkVertically(tween(200))) {
+                        msgs.firstOrNull()?.let { m ->
+                            val app = apps.firstOrNull { it.pkg == m.pkg }
+                            MessageCard(m, msgs.size - 1, app?.let(::iconOf), app?.label ?: m.pkg, onMore = ::expandNotifications, modifier = Modifier.padding(end = 28.dp, bottom = 16.dp))
+                        }
+                    }
+            }
             val homeGesturesMod = if (clean) Modifier.pointerInput(Unit) { homeGestures() } else Modifier
             val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 if (!wide) Column(Modifier.weight(1f).then(homeGesturesMod).padding(start = 36.dp, top = 40.dp)) {
                     Clock()
                     if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
+                    messageCard()
                     listPane(Modifier.weight(1f))
                     recentsRow()
                     bottomBar()
@@ -666,6 +689,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Column(Modifier.weight(1.3f).fillMaxHeight().padding(start = 24.dp, top = 12.dp)) {
                         if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
+                        messageCard()
                         listPane(Modifier.weight(1f))
                     }
                 }
