@@ -50,6 +50,9 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.provider.Settings
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.Spacer
 import android.provider.ContactsContract
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -577,16 +580,10 @@ class MainActivity : ComponentActivity() {
                 onDial = { safeStart(Intent(Intent.ACTION_DIAL)) },
                 onSetup = { settingsOpen = true },
                 onExit = { Drive.set(this@MainActivity, false) },
-            ) else
-            Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                Column(
-                    Modifier.weight(1f)
-                        .then(if (clean) Modifier.pointerInput(Unit) { homeGestures() } else Modifier)
-                        .padding(start = 36.dp, top = 40.dp)
-                ) {
-                    Clock()
-                    if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
-                    Box(Modifier.weight(1f)) {
+            ) else {
+            // Pieces shared by the portrait (one column) and landscape (two panes) layouts
+            val listPane: @Composable (Modifier) -> Unit = { m ->
+                    Box(m) {
                         Crossfade(clean, animationSpec = tween(220), label = "home") { isClean ->
                             if (isClean) WidgetArea()
                             else key(letter, q == null) { // fresh scroll position (and entrance animation) per letter / search
@@ -597,6 +594,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+            }
+            val recentsRow: @Composable () -> Unit = {
                     // Recent apps: small, dimmer icons so they read apart from favorites; only on the clean home view
                     if (clean && Look.showRecents && recents.isNotEmpty()) Column(Modifier.padding(top = 12.dp)) {
                         BasicText(stringResource(R.string.recents), style = SmallText.copy(fontSize = 12.sp))
@@ -621,9 +620,13 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+            }
+            val bottomBar: @Composable () -> Unit = {
                     if (Look.barBottom) Box(Modifier.padding(top = 12.dp, end = 20.dp)) {
                         LetterBar(visible.map { it.letter }.distinct(), letter, horizontal = true) { letter = it; query = null; menuFor = null }
                     }
+            }
+            val favoritesRow: @Composable () -> Unit = {
                     // Favorites pinned at the bottom as grayscale icons, always visible
                     Row(
                         Modifier.padding(top = 16.dp, bottom = 32.dp).horizontalScroll(rememberScrollState()),
@@ -631,9 +634,34 @@ class MainActivity : ComponentActivity() {
                     ) {
                         favorites.mapNotNull { id -> apps.find { it.id == id } }.forEach { key(it.id) { FavoriteIcon(it) } }
                     }
+            }
+            val homeGesturesMod = if (clean) Modifier.pointerInput(Unit) { homeGestures() } else Modifier
+            val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
+            Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                if (!wide) Column(Modifier.weight(1f).then(homeGesturesMod).padding(start = 36.dp, top = 40.dp)) {
+                    Clock()
+                    if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
+                    listPane(Modifier.weight(1f))
+                    recentsRow()
+                    bottomBar()
+                    favoritesRow()
+                } else Row(Modifier.weight(1f).then(homeGesturesMod).padding(start = 36.dp, top = 20.dp)) {
+                    // landscape: clock, recents and favorites on the left; widgets / list / search on the right
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        Clock(bottomGap = 12.dp, maxSp = 88f)
+                        Spacer(Modifier.weight(1f))
+                        recentsRow()
+                        bottomBar()
+                        favoritesRow()
+                    }
+                    Column(Modifier.weight(1.3f).fillMaxHeight().padding(start = 24.dp, top = 12.dp)) {
+                        if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
+                        listPane(Modifier.weight(1f))
+                    }
                 }
                 if (!Look.barBottom) LetterBar(visible.map { it.letter }.distinct(), letter) { letter = it; query = null; menuFor = null }
             }
+            } // home
             } // settings ↔ home
             } // layers
         }
@@ -905,14 +933,15 @@ class MainActivity : ComponentActivity() {
 
     // Tap time → alarms, tap date → calendar, long-press date → notification-dot access
     @Composable
-    private fun Clock() {
+    private fun Clock(bottomGap: Dp = 64.dp, maxSp: Float = Float.MAX_VALUE) {
+        val clockSp = minOf(Look.clockSp, maxSp)
         val now by produceState(LocalDateTime.now()) {
             while (true) {
                 value = LocalDateTime.now()
                 delay(1000L * (60 - value.second)) // wake at the next minute
             }
         }
-        Column(Modifier.padding(bottom = 64.dp)) {
+        Column(Modifier.padding(bottom = bottomGap)) {
             val time = now.format(DateTimeFormatter.ofPattern(if (Look.clock24) "HH:mm" else "h:mm"))
             Row(verticalAlignment = Alignment.Bottom) {
                 // the new minute rolls in from below while the old one drifts up and fades
@@ -927,16 +956,16 @@ class MainActivity : ComponentActivity() {
                     BasicText(
                         t,
                         // tap → alarms, long-press → launcher settings
-                        Modifier.alignInk(t, Look.clockSp.sp, 100).combinedClickable(
+                        Modifier.alignInk(t, clockSp.sp, 100).combinedClickable(
                             interactionSource = null, indication = null,
                             onLongClick = { settingsOpen = true },
                         ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
-                        style = TextStyle(color = Fg, fontSize = Look.clockSp.sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
+                        style = TextStyle(color = Fg, fontSize = clockSp.sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
                     )
                 }
                 if (!Look.clock24) BasicText(
                     now.format(DateTimeFormatter.ofPattern("a")).lowercase(),
-                    Modifier.padding(start = 10.dp, bottom = (Look.clockSp * 0.2f).dp),
+                    Modifier.padding(start = 10.dp, bottom = (clockSp * 0.2f).dp),
                     style = SmallText.copy(fontSize = 18.sp),
                 )
             }

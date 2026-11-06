@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -117,10 +119,8 @@ fun DriveScreen(
     val now by produceState(LocalDateTime.now()) {
         while (true) { value = LocalDateTime.now(); delay(1000L * (60 - value.second)) }
     }
-    Column(
-        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 28.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(28.dp),
-    ) {
+    val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
+    val header: @Composable () -> Unit = {
         // header: time · driving · exit
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BasicText(
@@ -135,8 +135,8 @@ fun DriveScreen(
             )
         }
 
-        DriveMusic(Modifier.weight(1f))
-
+    }
+    val navAndCalls: @Composable () -> Unit = {
         // navigate
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             BigButton(stringResource(R.string.drive_home), dim = homeAddress.isBlank()) { if (homeAddress.isBlank()) onSetup() else onNavigate(homeAddress) }
@@ -157,6 +157,19 @@ fun DriveScreen(
                 }
             }
         }
+    }
+    val outer = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 28.dp, vertical = 20.dp)
+    if (!wide) Column(outer, verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        header()
+        DriveMusic(Modifier.weight(1f))
+        Column(verticalArrangement = Arrangement.spacedBy(28.dp)) { navAndCalls() }
+    } else Row(outer, horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+        // landscape (phone on a car mount): player on the left, destinations and calls on the right
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            header()
+            DriveMusic(Modifier.weight(1f))
+        }
+        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically)) { navAndCalls() }
     }
 }
 

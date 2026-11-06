@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
@@ -155,7 +156,8 @@ fun SettingsScreen(
     }
     val sizes = listOf(R.string.s_small, R.string.s_medium, R.string.s_large).map { stringResource(it) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 36.dp, end = 24.dp, top = 64.dp, bottom = 48.dp)) {
+    // widthIn keeps lines readable in landscape; in portrait the screen is narrower than the cap anyway
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 36.dp, end = 24.dp, top = 64.dp, bottom = 48.dp).widthIn(max = 620.dp)) {
         BasicText(stringResource(R.string.s_title), style = RowText.copy(fontSize = 40.sp, fontWeight = FontWeight.Thin))
 
         Section(stringResource(R.string.s_background)) {
