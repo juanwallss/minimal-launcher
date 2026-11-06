@@ -5,7 +5,7 @@ Guidance for Claude Code sessions working on this repo.
 ## What this is
 
 **Minimal** — a personal, minimalist Android home-screen launcher (Kotlin + Jetpack Compose, one Activity).
-Built for and installed on the owner's Samsung Galaxy (SM-S948B, One UI, gesture navigation). The owner
+Built for and installed on the owner's Samsung Galaxy (One UI, gesture navigation). The owner
 speaks **Spanish** — reply in Spanish. Their phone UI is in **English**, so the launcher shows English there.
 
 Look: near-black / warm off-white (follows the system dark/light mode), thin **Jost** type, lowercase labels
@@ -24,7 +24,7 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 ```
 
 The phone is reached over **wireless debugging** (`~/Library/Android/sdk/platform-tools/adb`):
-- `adb devices` / `adb mdns services` to find it. The owner moves between Wi-Fi networks a lot; when it's
+- `adb devices` / `adb mdns services` to find it. When it's
   missing, `adb kill-server && adb start-server` often fixes discovery, then `adb connect <ip:port from mdns>`.
 - If it refuses the connection, the owner must re-pair (`adb pair IP:PORT` from the phone's "pair with code"
   dialog). **Never type the pairing code yourself** — the owner runs that command.
@@ -40,8 +40,8 @@ The phone is in daily use. Before **any** `adb shell input …` (tap/swipe/keyev
    (earlier, test swipes landed in WhatsApp).
 2. Re-check between steps of a sequence; abort if focus changes.
 
-Screenshots (`adb exec-out screencap -p`) can show private notifications, banking apps, family photos (the
-wallpaper). Prefer `uiautomator dump` text checks; if you need pixels, crop to the area you need, don't describe
+Screenshots (`adb exec-out screencap -p`) of the real phone can show private notifications, apps and the
+wallpaper. Prefer `uiautomator dump` text checks; if you need pixels, crop to the area you need, don't describe
 personal content, and delete the image afterwards. Don't put the owner's app list or wallpaper in docs/README.
 
 ## Code map
@@ -93,4 +93,12 @@ Gesture actions: `none|lock|notifications|search|camera|torch|app:<pkg>/<activit
 - Commit after each change (`git -c user.name="Juan Paredes" commit`), messages in English, one line + body.
 - Prefer small, surgical edits; the owner tests on-device and iterates fast.
 - README.md (Spanish) documents gestures/permissions for the owner; update it when user-facing behavior changes
-  significantly. Screenshots in `docs/` must not show personal data.
+  significantly. Screenshots in `docs/` must not show personal data — take them on the `Medium_Phone` emulator with sample apps.
+
+## Releases
+
+`./gradlew assembleRelease` → minified APK signed with the keystore that `keystore.properties` (git-ignored) points to;
+the keystore lives outside the repo (`~/.android-keystores/`). **Never commit either.** Bump `versionCode` +
+`versionName` in `app/build.gradle.kts`, then a GitHub release `vX.Y.Z` with `minimal-X.Y.Z.apk` attached
+(repo `juanwallss/minimal-launcher`, private; use that account's token: `GH_TOKEN=$(gh auth token --user juanwallss)`).
+Release builds can't update a debug install (different signature): uninstall first.

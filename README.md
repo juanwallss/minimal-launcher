@@ -95,6 +95,10 @@ keyPassword=…
 
 Kotlin + Jetpack Compose, una sola Activity, sin más dependencias que `activity-compose` y `compose-foundation`.
 
+## Licencia
+
+Código bajo [MIT](LICENSE).
+
 ## Créditos
 
 Fuentes bajo SIL Open Font License: [Jost](https://github.com/indestructible-type/Jost) ([licencia](FONT-LICENSE-Jost.txt)), [Fraunces](https://github.com/undercasetype/Fraunces) ([licencia](FONT-LICENSE-Fraunces.txt)), [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) ([licencia](FONT-LICENSE-JetBrainsMono.txt)), [Space Grotesk](https://github.com/floriankarsten/space-grotesk) ([licencia](FONT-LICENSE-SpaceGrotesk.txt)). Clima de [Open-Meteo](https://open-meteo.com).
