@@ -105,6 +105,14 @@ internal object Look {
     var driveContacts by mutableStateOf(emptyList<DriveContact>())
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
     var barLeft by mutableStateOf(false)   // side bar on the left edge (left-handed)
+    var barHaptics by mutableIntStateOf(2) // letter bar vibration: 0 off · 1 soft · 2 normal · 3 strong
+
+    // what goes under the time
+    const val INFO_DATE = "date"; const val INFO_WEATHER = "weather"; const val INFO_RINGER = "ringer"
+    const val INFO_BATTERY = "battery"; const val INFO_ALARM = "alarm"; const val INFO_EVENT = "event"; const val INFO_NOTIF = "notif"
+    val INFO_ALL = listOf(INFO_DATE, INFO_WEATHER, INFO_RINGER, INFO_BATTERY, INFO_ALARM, INFO_EVENT, INFO_NOTIF)
+    private val INFO_DEFAULT = INFO_ALL - INFO_ALARM
+    var info by mutableStateOf(INFO_DEFAULT.toSet())
 
     // theme = one accent color (+ a faint tint of the background): none, from the wallpaper, or a preset
     const val THEME_NONE = "none"
@@ -134,6 +142,8 @@ internal object Look {
         clock24 = p.getBoolean("clock24", DateFormat.is24HourFormat(ctx)) // default follows the phone
         barBottom = p.getBoolean("barBottom", false)
         barLeft = p.getBoolean("barLeft", false)
+        barHaptics = p.getInt("barHaptics", 2)
+        info = p.getString("info", null)?.split(",")?.filter { it.isNotEmpty() }?.toSet() ?: INFO_DEFAULT.toSet()
         theme = p.getString("theme", THEME_NONE)!!
         showRecents = p.getBoolean("showRecents", true)
         showMessages = p.getBoolean("showMessages", true)
@@ -150,7 +160,7 @@ internal object Look {
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
-            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
+            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putString("info", info.joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
@@ -412,6 +422,21 @@ private fun HomePage(set: (() -> Unit) -> Unit) {
         Choice(stringResource(R.string.s_bar_side), !Look.barBottom && !Look.barLeft) { set { Look.barBottom = false; Look.barLeft = false } }
         Choice(stringResource(R.string.s_bar_left), !Look.barBottom && Look.barLeft) { set { Look.barBottom = false; Look.barLeft = true } }
         Choice(stringResource(R.string.s_bar_bottom), Look.barBottom) { set { Look.barBottom = true } }
+    }
+    Section(stringResource(R.string.s_haptics)) {
+        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+        val kinds = listOf(null, androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentFrequentTick,
+            androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove, androidx.compose.ui.hapticfeedback.HapticFeedbackType.VirtualKey)
+        listOf(R.string.s_off, R.string.s_soft, R.string.s_normal, R.string.s_strong).forEachIndexed { i, label ->
+            // choosing a level plays it once, so you feel it
+            Choice(stringResource(label), Look.barHaptics == i) { set { Look.barHaptics = i }; kinds[i]?.let(haptics::performHapticFeedback) }
+        }
+    }
+    Section(stringResource(R.string.s_info)) {
+        val names = mapOf(Look.INFO_DATE to R.string.i_date, Look.INFO_WEATHER to R.string.i_weather, Look.INFO_RINGER to R.string.i_ringer,
+            Look.INFO_BATTERY to R.string.i_battery, Look.INFO_ALARM to R.string.i_alarm, Look.INFO_EVENT to R.string.i_event, Look.INFO_NOTIF to R.string.i_notif)
+        // each one toggles on its own
+        Look.INFO_ALL.forEach { k -> Choice(stringResource(names.getValue(k)), k in Look.info) { set { Look.info = if (k in Look.info) Look.info - k else Look.info + k } } }
     }
     Section(stringResource(R.string.s_recents)) {
         val ctx = LocalContext.current

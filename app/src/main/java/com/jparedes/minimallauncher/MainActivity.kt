@@ -957,10 +957,12 @@ class MainActivity : ComponentActivity() {
                 ) { safeStart(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
             )
             // line under it: the date (DAY also carries the time; SPLIT already shows time/date/temp in its band)
+            val info = Look.info // what the owner chose to show under the time (settings → home)
+            val showDate = Look.INFO_DATE in info
             val date = when (style) {
-                ClockStyle.DAY, ClockStyle.BINARY -> "$timeText  ·  ${shortDate.lowercase()}"
+                ClockStyle.DAY, ClockStyle.BINARY -> if (showDate) "$timeText  ·  ${shortDate.lowercase()}" else timeText
                 ClockStyle.SPLIT -> ""
-                else -> now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
+                else -> if (showDate) now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase() else ""
             }
             Row(Modifier.padding(top = if (style == ClockStyle.SPLIT) 6.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (date.isNotEmpty()) BasicText(
@@ -974,8 +976,8 @@ class MainActivity : ComponentActivity() {
                 // current temperature with a sun / cloud / rain glyph; tap refreshes it
                 val wx = weather
                 val wxCode = weatherTestCode ?: wx?.code
-                if (wx != null && wxCode != null && style != ClockStyle.SPLIT) Row(
-                    Modifier.padding(start = 14.dp).clickable(interactionSource = null, indication = null) { refreshWeather(force = true) },
+                if (Look.INFO_WEATHER in info && wx != null && wxCode != null && style != ClockStyle.SPLIT) Row(
+                    Modifier.padding(start = if (date.isEmpty()) 0.dp else 14.dp).clickable(interactionSource = null, indication = null) { refreshWeather(force = true) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val kind = weatherKind(wxCode)
@@ -985,7 +987,7 @@ class MainActivity : ComponentActivity() {
                     BasicText("${wx.temp}°", Modifier.padding(start = 5.dp), style = SmallText.copy(fontSize = 16.sp))
                 }
                 // sound · vibrate · silent; tap shows the system volume panel (where the mode can be switched)
-                RingerIcon(
+                if (Look.INFO_RINGER in info) RingerIcon(
                     ringerMode(), Dim,
                     Modifier.padding(start = if (date.isEmpty()) 0.dp else 12.dp).size(26.dp).clip(CircleShape)
                         .clickable(interactionSource = null, indication = null) {
@@ -996,17 +998,18 @@ class MainActivity : ComponentActivity() {
             }
             // battery · next event (tap: grant calendar access, then opens the calendar) · • n notifications
             val (level, charging) = battery()
-            val event = remember(now, resumes) { nextEvent() }
-            val notified = NotificationDots.packages.value.size
-            val status = buildString {
-                    append(stringResource(if (charging) R.string.battery_charging else R.string.battery, level))
-                    event?.let { (title, at) ->
-                        append("  ·  ")
-                        if (at.toLocalDate() != now.toLocalDate()) append(stringResource(R.string.tomorrow)).append(' ')
-                        append(at.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase()).append(' ').append(title)
-                    }
-                }
-            Row(Modifier.padding(top = 6.dp).alignInk(status, 14.sp, 400)) {
+            val event = if (Look.INFO_EVENT in info) remember(now, resumes) { nextEvent() } else null
+            val alarm = if (Look.INFO_ALARM in info) remember(now, resumes) { nextAlarm() } else null
+            val notified = if (Look.INFO_NOTIF in info) NotificationDots.packages.value.size else 0
+            val tomorrow = stringResource(R.string.tomorrow)
+            fun clock(at: LocalDateTime) = (if (at.toLocalDate() != now.toLocalDate()) "$tomorrow " else "") +
+                at.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase()
+            val status = listOfNotNull(
+                    if (Look.INFO_BATTERY in info) stringResource(if (charging) R.string.battery_charging else R.string.battery, level) else null,
+                    alarm?.let { stringResource(R.string.alarm_at, clock(it)) },
+                    event?.let { (title, at) -> "${clock(at)} $title" },
+                ).joinToString("  ·  ")
+            if (status.isNotEmpty() || notified > 0) Row(Modifier.padding(top = 6.dp).alignInk(status, 14.sp, 400)) {
                 BasicText(
                     status,
                     Modifier.weight(1f, fill = false).clickable(interactionSource = null, indication = null) {
@@ -1019,7 +1022,7 @@ class MainActivity : ComponentActivity() {
                 )
                 // How many apps have notifications; tap opens the shade
                 if (notified > 0) BasicText(
-                    "  ·  • $notified",
+                    (if (status.isEmpty()) "" else "  ·  ") + "• $notified",
                     Modifier.clickable(interactionSource = null, indication = null) { expandNotifications() },
                     style = SmallText.copy(fontSize = 14.sp, color = Fg),
                 )
@@ -1060,6 +1063,13 @@ class MainActivity : ComponentActivity() {
             onDispose { unregisterReceiver(receiver) }
         }
         return state
+    }
+
+    // Next alarm set in the clock app, if it rings within 24h
+    private fun nextAlarm(): LocalDateTime? {
+        val at = getSystemService(android.app.AlarmManager::class.java).nextAlarmClock?.triggerTime ?: return null
+        if (at - System.currentTimeMillis() > 24 * 3_600_000L) return null
+        return LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(at), java.time.ZoneId.systemDefault())
     }
 
     private fun hasCalendar() = checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
@@ -1191,7 +1201,14 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
             if (letters.isEmpty()) return
             touch = pos.coerceIn(0f, length())
             val l = letters[(pos / length() * letters.size).toInt().coerceIn(letters.indices)]
-            if (l != last) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); last = l; onSelect(l) }
+            if (l != last) {
+                when (Look.barHaptics) { // settings → home → vibration
+                    1 -> haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                    2 -> haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    3 -> haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                }
+                last = l; onSelect(l)
+            }
         }
         // Nothing is selected on touch-down (a back swipe from the edge, or a swipe across the strip, starts here too).
         // Select while sliding along the strip, or on a tap (on release); movement across the strip selects nothing.

@@ -140,4 +140,17 @@
     <string name="th_sea">sea</string>
     <string name="th_rose">rose</string>
     <string name="th_lilac">lilac</string>
+    <string name="s_haptics">vibration</string>
+    <string name="s_soft">soft</string>
+    <string name="s_normal">normal</string>
+    <string name="s_strong">strong</string>
+    <string name="s_info">under the time</string>
+    <string name="i_date">date</string>
+    <string name="i_weather">weather</string>
+    <string name="i_ringer">sound mode</string>
+    <string name="i_battery">battery</string>
+    <string name="i_alarm">next alarm</string>
+    <string name="i_event">next event</string>
+    <string name="i_notif">notifications</string>
+    <string name="alarm_at">alarm %1$s</string>
 </resources>
