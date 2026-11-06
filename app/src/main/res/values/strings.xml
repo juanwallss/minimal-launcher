@@ -99,4 +99,21 @@
     <string name="s_try">start now</string>
     <string name="s_addr_hint">street, city</string>
     <string name="g_drive">driving mode</string>
+    <string name="cat_appearance">appearance</string>
+    <string name="cat_home">home screen</string>
+    <string name="cat_permissions">permissions</string>
+    <string name="s_bg_photo_short">photo</string>
+    <string name="s_no_car">no car</string>
+    <string name="s_contacts_count">%1$d contacts</string>
+    <string name="perm_summary">%1$d of %2$d on</string>
+    <string name="perm_hint">all optional — each one turns on a feature. tap to change it.</string>
+    <string name="p_notifications">notification access</string>
+    <string name="p_accessibility">double-tap lock</string>
+    <string name="p_usage">usage access</string>
+    <string name="p_calendar">calendar</string>
+    <string name="p_location">approximate location</string>
+    <string name="p_nearby">nearby devices (car)</string>
+    <string name="p_calls">phone calls</string>
+    <string name="state_on">on</string>
+    <string name="state_off">off</string>
 </resources>

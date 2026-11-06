@@ -49,7 +49,7 @@ personal content, and delete the image afterwards. Don't put the owner's app lis
 | File | What's in it |
 |---|---|
 | `MainActivity.kt` | Everything on the home screen: state, layout layers, app list, letter bar, clock/status line, gestures, favorites, recents, widget area + system widget hosting, settings entry, animations helpers (`enterAnim`, `longPressFirst`, `alignInk`, `fadeEdges`). Palette/type tokens (`Bg`, `Fg`, `Dim`, `RowText`, `SmallText`, `TextShadow`, `Grayscale`) are `internal` top-level vals here. |
-| `Settings.kt` | `Look` object (all user settings as Compose state + `load`/`save` to prefs), the settings screen (opened by long-pressing the time), gesture config + app picker, dim slider, `hasUsageAccess()`. |
+| `Settings.kt` | `Look` object (all user settings as Compose state + `load`/`save` to prefs) and the settings screen (long-press the time): opaque, a category list (appearance · home · gestures · driving · permissions) with per-category pages, live background preview, gesture app picker, dim slider, permissions status, `hasUsageAccess()`. |
 | `NativeWidgets.kt` | Built-in widget pages: agenda (calendar), music (media sessions + seekable progress + drawn controls), weather (Open-Meteo, coarse location). `NativeWidget` enum. |
 | `WidgetHost.kt` | `AppWidgetHost` subclass + host view that detects long-press and swipes on top of other apps' widgets. |
 | `LockService.kt` | Accessibility service used only for double-tap-to-lock (`GLOBAL_ACTION_LOCK_SCREEN`). |

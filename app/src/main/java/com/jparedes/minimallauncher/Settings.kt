@@ -32,6 +32,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -122,7 +145,7 @@ internal object Look {
 @Composable
 private fun Section(title: String, content: @Composable FlowRowScope.() -> Unit) {
     Column(Modifier.padding(top = 30.dp)) {
-        BasicText(title, style = SmallText.copy(fontSize = 13.sp))
+        SectionLabel(title)
         FlowRow(
             Modifier.padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(22.dp),
@@ -132,13 +155,26 @@ private fun Section(title: String, content: @Composable FlowRowScope.() -> Unit)
 }
 
 @Composable
-private fun Choice(label: String, selected: Boolean, onClick: () -> Unit) = BasicText(
-    label,
-    Modifier.clickable(interactionSource = null, indication = null, onClick = onClick).padding(vertical = 4.dp),
-    style = RowText.copy(fontSize = 19.sp, color = if (selected) Fg else Dim),
-)
+private fun SectionLabel(title: String) = BasicText(title, style = SmallText.copy(fontSize = 12.sp, letterSpacing = 1.5.sp))
 
-/** Full-screen settings, opened by long-pressing the time. */
+/** Text option; the chosen one is bright with a thin underline. */
+@Composable
+private fun Choice(label: String, selected: Boolean, onClick: () -> Unit) {
+    val line = Fg
+    BasicText(
+        label,
+        Modifier.clickable(interactionSource = null, indication = null, onClick = onClick).padding(vertical = 4.dp)
+            .drawBehind { if (selected) drawLine(line, Offset(0f, size.height + 2.dp.toPx()), Offset(size.width, size.height + 2.dp.toPx()), 1.dp.toPx()) },
+        style = RowText.copy(fontSize = 19.sp, color = if (selected) Fg else Dim),
+    )
+}
+
+private enum class SettingsPage { APPEARANCE, HOME, GESTURES, DRIVE, PERMISSIONS }
+
+/**
+ * Full-screen settings, opened by long-pressing the time. Opaque (the wallpaper never shows behind it):
+ * a list of categories with a one-line summary each, and one page per category.
+ */
 @Composable
 fun SettingsScreen(
     onPickPhoto: () -> Unit,
@@ -146,85 +182,252 @@ fun SettingsScreen(
     apps: List<App>,
     onAskBluetooth: () -> Unit,
     onPickContact: () -> Unit,
+    background: ImageBitmap?,
+    resumeTick: Int,          // bumps when the launcher resumes, so permission states re-read after visiting Settings
     onClose: () -> Unit,
 ) {
     fun set(change: () -> Unit) { change(); Look.save() }
+    var page by remember { mutableStateOf<SettingsPage?>(null) }
     var pickingAppFor by remember { mutableStateOf<String?>(null) }
-    pickingAppFor?.let { g ->
-        AppPicker(apps, onPick = { app -> set { Look.gestures[g] = "app:${app.id}" }; pickingAppFor = null }, onCancel = { pickingAppFor = null })
-        return
+    BackHandler(enabled = page != null || pickingAppFor != null) {
+        if (pickingAppFor != null) pickingAppFor = null else page = null
     }
+
+    Box(Modifier.fillMaxSize().background(Bg)) {
+        pickingAppFor?.let { g ->
+            AppPicker(apps, onPick = { app -> set { Look.gestures[g] = "app:${app.id}" }; pickingAppFor = null }, onCancel = { pickingAppFor = null })
+            return@Box
+        }
+        AnimatedContent(
+            page,
+            transitionSpec = {
+                val forward = targetState != null
+                (slideInHorizontally(tween(260)) { if (forward) it / 5 else -it / 5 } + fadeIn(tween(260))) togetherWith
+                    (slideOutHorizontally(tween(200)) { if (forward) -it / 8 else it / 8 } + fadeOut(tween(160)))
+            },
+            label = "settingsPage",
+        ) { p ->
+            Column(
+                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState())
+                    .padding(start = 36.dp, end = 28.dp, top = 48.dp, bottom = 48.dp).widthIn(max = 620.dp)
+            ) {
+                if (p == null) {
+                    BasicText(stringResource(R.string.s_title), Modifier.padding(bottom = 28.dp), style = RowText.copy(fontSize = 44.sp, fontWeight = FontWeight.Thin))
+                    Categories(apps, resumeTick) { page = it }
+                    BasicText(
+                        stringResource(R.string.s_done),
+                        Modifier.padding(top = 40.dp).clickable(interactionSource = null, indication = null, onClick = onClose).padding(vertical = 6.dp),
+                        style = RowText.copy(fontSize = 19.sp),
+                    )
+                } else {
+                    // ‹ settings  /  page title
+                    BasicText(
+                        "‹  " + stringResource(R.string.s_title),
+                        Modifier.clickable(interactionSource = null, indication = null) { page = null }.padding(vertical = 6.dp),
+                        style = SmallText,
+                    )
+                    BasicText(stringResource(p.title), Modifier.padding(top = 10.dp, bottom = 8.dp), style = RowText.copy(fontSize = 38.sp, fontWeight = FontWeight.Thin))
+                    when (p) {
+                        SettingsPage.APPEARANCE -> AppearancePage(::set, onPickPhoto, onBackgroundChanged, background)
+                        SettingsPage.HOME -> HomePage(::set)
+                        SettingsPage.GESTURES -> GesturesPage(::set, apps) { pickingAppFor = it }
+                        SettingsPage.DRIVE -> DriveSettings(set = ::set, onAskBluetooth = onAskBluetooth, onPickContact = onPickContact, onClose = onClose)
+                        SettingsPage.PERMISSIONS -> PermissionsPage(resumeTick)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private val SettingsPage.title get() = when (this) {
+    SettingsPage.APPEARANCE -> R.string.cat_appearance
+    SettingsPage.HOME -> R.string.cat_home
+    SettingsPage.GESTURES -> R.string.g_title
+    SettingsPage.DRIVE -> R.string.s_drive
+    SettingsPage.PERMISSIONS -> R.string.cat_permissions
+}
+
+private val GESTURE_ACTIONS = listOf(
+    "none" to R.string.g_none, "lock" to R.string.g_lock, "notifications" to R.string.g_notifications,
+    "search" to R.string.g_search, "camera" to R.string.g_camera, "torch" to R.string.g_torch, "drive" to R.string.g_drive,
+)
+private val GESTURE_NAMES = mapOf(
+    "double" to R.string.g_double, "up" to R.string.g_up, "down" to R.string.g_down,
+    "left" to R.string.g_left, "right" to R.string.g_right,
+)
+
+@Composable
+private fun actionLabel(action: String, apps: List<App>): String =
+    if (action.startsWith("app:")) apps.find { it.id == action.removePrefix("app:") }?.label?.lowercase() ?: stringResource(R.string.g_app)
+    else stringResource(GESTURE_ACTIONS.firstOrNull { it.first == action }?.second ?: R.string.g_none)
+
+/** Category rows: title, current-values summary, chevron; hairline dividers between. */
+@Composable
+private fun Categories(apps: List<App>, resumeTick: Int, open: (SettingsPage) -> Unit) {
     val sizes = listOf(R.string.s_small, R.string.s_medium, R.string.s_large).map { stringResource(it) }
-
-    // widthIn keeps lines readable in landscape; in portrait the screen is narrower than the cap anyway
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 36.dp, end = 24.dp, top = 64.dp, bottom = 48.dp).widthIn(max = 620.dp)) {
-        BasicText(stringResource(R.string.s_title), style = RowText.copy(fontSize = 40.sp, fontWeight = FontWeight.Thin))
-
-        Section(stringResource(R.string.s_background)) {
-            Choice(stringResource(R.string.s_bg_none), Look.background == Look.BG_NONE) { set { Look.background = Look.BG_NONE }; onBackgroundChanged() }
-            Choice(stringResource(R.string.s_bg_system), Look.background == Look.BG_SYSTEM) { set { Look.background = Look.BG_SYSTEM }; onBackgroundChanged() }
-            // tapping "photo…" always opens the picker, so it doubles as "change photo"
-            Choice(stringResource(R.string.s_bg_photo), Look.background == Look.BG_PHOTO, onPickPhoto)
-        }
-        if (Look.background != Look.BG_NONE) Column(Modifier.padding(top = 30.dp)) {
-            BasicText(stringResource(R.string.s_dim), style = SmallText.copy(fontSize = 13.sp))
-            DimSlider()
-        }
-        if (Look.background == Look.BG_PHOTO) Section(stringResource(R.string.s_gray)) {
-            Choice(stringResource(R.string.s_on), Look.gray) { set { Look.gray = true } }
-            Choice(stringResource(R.string.s_off), !Look.gray) { set { Look.gray = false } }
-        }
-        Section(stringResource(R.string.s_clock)) {
-            sizes.forEachIndexed { i, label -> Choice(label, Look.clockSize == i) { set { Look.clockSize = i } } }
-        }
-        Section(stringResource(R.string.s_text)) {
-            sizes.forEachIndexed { i, label -> Choice(label, Look.textSize == i) { set { Look.textSize = i } } }
-        }
-        Section(stringResource(R.string.s_bar)) {
-            Choice(stringResource(R.string.s_bar_side), !Look.barBottom) { set { Look.barBottom = false } }
-            Choice(stringResource(R.string.s_bar_bottom), Look.barBottom) { set { Look.barBottom = true } }
-        }
-        Section(stringResource(R.string.s_recents)) {
-            val ctx = LocalContext.current
-            Choice(stringResource(R.string.show), Look.showRecents) { set { Look.showRecents = true } }
-            Choice(stringResource(R.string.hide), !Look.showRecents) { set { Look.showRecents = false } }
-            // optional: with usage access the row also sees apps opened from notifications / links
-            Choice(stringResource(R.string.s_usage), ctx.hasUsageAccess()) {
-                runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    val bg = stringResource(when (Look.background) { Look.BG_PHOTO -> R.string.s_bg_photo_short; Look.BG_SYSTEM -> R.string.s_bg_system; else -> R.string.s_bg_none })
+    val perms = permissionStates(resumeTick)
+    val rows = listOf(
+        SettingsPage.APPEARANCE to listOfNotNull(bg, if (Look.background != Look.BG_NONE) "${Look.dim} %" else null,
+            stringResource(R.string.s_clock) + " " + sizes[Look.clockSize], if (Look.clock24) "24 h" else "12 h").joinToString("  ·  "),
+        SettingsPage.HOME to listOf(
+            stringResource(R.string.s_bar) + " " + stringResource(if (Look.barBottom) R.string.s_bar_bottom else R.string.s_bar_side),
+            stringResource(R.string.s_recents) + " " + stringResource(if (Look.showRecents) R.string.s_on else R.string.s_off),
+        ).joinToString("  ·  "),
+        SettingsPage.GESTURES to listOf("double", "up", "down").map { g -> // map is inline, so composable calls are fine here
+            stringResource(GESTURE_NAMES.getValue(g)) + ": " + actionLabel(Look.gestures[g] ?: "none", apps)
+        }.joinToString("  ·  "),
+        SettingsPage.DRIVE to listOf(
+            Look.carName?.lowercase() ?: stringResource(R.string.s_no_car),
+            stringResource(R.string.s_contacts_count, Look.driveContacts.size),
+        ).joinToString("  ·  "),
+        SettingsPage.PERMISSIONS to stringResource(R.string.perm_summary, perms.count { it.on }, perms.size),
+    )
+    val divider = Dim.copy(alpha = 0.35f)
+    rows.forEachIndexed { i, (page, summary) ->
+        if (i > 0) Box(Modifier.fillMaxWidth().height(0.5.dp).background(divider))
+        Row(
+            Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null) { open(page) }.padding(vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                BasicText(stringResource(page.title), style = RowText.copy(fontSize = 23.sp))
+                BasicText(summary, Modifier.padding(top = 4.dp), style = SmallText.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            BasicText("›", Modifier.padding(start = 12.dp), style = RowText.copy(fontSize = 26.sp, color = Dim))
         }
-        Section(stringResource(R.string.s_format)) {
-            Choice("24 h", Look.clock24) { set { Look.clock24 = true } }
-            Choice("12 h", !Look.clock24) { set { Look.clock24 = false } }
-        }
-        // Gestures on the empty home screen
-        val actions = listOf(
-            "none" to R.string.g_none, "lock" to R.string.g_lock, "notifications" to R.string.g_notifications,
-            "search" to R.string.g_search, "camera" to R.string.g_camera, "torch" to R.string.g_torch, "drive" to R.string.g_drive,
-        )
-        val gestureNames = mapOf(
-            "double" to R.string.g_double, "up" to R.string.g_up, "down" to R.string.g_down,
-            "left" to R.string.g_left, "right" to R.string.g_right,
-        )
-        BasicText(stringResource(R.string.g_title), Modifier.padding(top = 44.dp), style = RowText.copy(fontSize = 26.sp, fontWeight = FontWeight.Thin))
-        Look.GESTURE_DEFAULTS.keys.forEach { g ->
-            val current = Look.gestures[g] ?: "none"
-            Section(stringResource(gestureNames.getValue(g))) {
-                actions.forEach { (action, label) -> Choice(stringResource(label), current == action) { set { Look.gestures[g] = action } } }
-                val chosenApp = current.takeIf { it.startsWith("app:") }?.removePrefix("app:")?.let { id -> apps.find { it.id == id } }
-                Choice(chosenApp?.label?.lowercase() ?: stringResource(R.string.g_app), chosenApp != null) { pickingAppFor = g }
-            }
-        }
+    }
+}
 
-        // Driving mode
-        BasicText(stringResource(R.string.s_drive), Modifier.padding(top = 44.dp), style = RowText.copy(fontSize = 26.sp, fontWeight = FontWeight.Thin))
-        DriveSettings(set = ::set, onAskBluetooth = onAskBluetooth, onPickContact = onPickContact, onClose = onClose)
+@Composable
+private fun AppearancePage(set: (() -> Unit) -> Unit, onPickPhoto: () -> Unit, onBackgroundChanged: () -> Unit, background: ImageBitmap?) {
+    val sizes = listOf(R.string.s_small, R.string.s_medium, R.string.s_large).map { stringResource(it) }
+    Preview(background)
+    Section(stringResource(R.string.s_background)) {
+        Choice(stringResource(R.string.s_bg_none), Look.background == Look.BG_NONE) { set { Look.background = Look.BG_NONE }; onBackgroundChanged() }
+        Choice(stringResource(R.string.s_bg_system), Look.background == Look.BG_SYSTEM) { set { Look.background = Look.BG_SYSTEM }; onBackgroundChanged() }
+        // tapping "photo…" always opens the picker, so it doubles as "change photo"
+        Choice(stringResource(R.string.s_bg_photo), Look.background == Look.BG_PHOTO, onPickPhoto)
+    }
+    if (Look.background != Look.BG_NONE) Column(Modifier.padding(top = 30.dp)) {
+        SectionLabel(stringResource(R.string.s_dim))
+        DimSlider()
+    }
+    if (Look.background == Look.BG_PHOTO) Section(stringResource(R.string.s_gray)) {
+        Choice(stringResource(R.string.s_on), Look.gray) { set { Look.gray = true } }
+        Choice(stringResource(R.string.s_off), !Look.gray) { set { Look.gray = false } }
+    }
+    Section(stringResource(R.string.s_clock)) {
+        sizes.forEachIndexed { i, label -> Choice(label, Look.clockSize == i) { set { Look.clockSize = i } } }
+    }
+    Section(stringResource(R.string.s_text)) {
+        sizes.forEachIndexed { i, label -> Choice(label, Look.textSize == i) { set { Look.textSize = i } } }
+    }
+    Section(stringResource(R.string.s_format)) {
+        Choice("24 h", Look.clock24) { set { Look.clock24 = true } }
+        Choice("12 h", !Look.clock24) { set { Look.clock24 = false } }
+    }
+}
 
-        BasicText(
-            stringResource(R.string.s_done),
-            Modifier.padding(top = 44.dp).clickable(interactionSource = null, indication = null, onClick = onClose).padding(vertical = 6.dp),
-            style = RowText.copy(fontSize = 19.sp),
+/**
+ * Live preview of the home background (photo or system wallpaper + dim veil) with a sample clock,
+ * since the settings panel itself is opaque. For the system wallpaper the card punches a hole through the
+ * (transparent) window so Android's wallpaper shows inside it.
+ */
+@Composable
+private fun Preview(background: ImageBitmap?) {
+    val shape = RoundedCornerShape(22.dp)
+    val bg = Bg
+    Box(
+        Modifier.padding(top = 12.dp).fillMaxWidth().height(170.dp).clip(shape).border(0.5.dp, Dim.copy(alpha = 0.5f), shape)
+            .drawBehind {
+                if (Look.background == Look.BG_SYSTEM) drawRect(Color.Black, blendMode = BlendMode.Clear) // window hole → wallpaper
+                else if (Look.background == Look.BG_NONE) drawRect(bg)
+            },
+    ) {
+        if (Look.background == Look.BG_PHOTO && background != null) {
+            Image(background, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = if (Look.gray) Grayscale else null)
+        }
+        if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(bg.copy(alpha = Look.dim / 100f)))
+        val now = remember { java.time.LocalDateTime.now() }
+        Column(Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
+            BasicText(
+                now.format(java.time.format.DateTimeFormatter.ofPattern(if (Look.clock24) "HH:mm" else "h:mm")),
+                style = TextStyle(color = Fg, fontSize = (Look.clockSp * 0.55f).sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
+            )
+            BasicText(now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase(), style = SmallText.copy(fontSize = 12.sp))
+        }
+    }
+}
+
+@Composable
+private fun HomePage(set: (() -> Unit) -> Unit) {
+    Section(stringResource(R.string.s_bar)) {
+        Choice(stringResource(R.string.s_bar_side), !Look.barBottom) { set { Look.barBottom = false } }
+        Choice(stringResource(R.string.s_bar_bottom), Look.barBottom) { set { Look.barBottom = true } }
+    }
+    Section(stringResource(R.string.s_recents)) {
+        val ctx = LocalContext.current
+        Choice(stringResource(R.string.show), Look.showRecents) { set { Look.showRecents = true } }
+        Choice(stringResource(R.string.hide), !Look.showRecents) { set { Look.showRecents = false } }
+        // optional: with usage access the row also sees apps opened from notifications / links
+        Choice(stringResource(R.string.s_usage), ctx.hasUsageAccess()) {
+            runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
+    }
+}
+
+@Composable
+private fun GesturesPage(set: (() -> Unit) -> Unit, apps: List<App>, pickApp: (String) -> Unit) {
+    Look.GESTURE_DEFAULTS.keys.forEach { g ->
+        val current = Look.gestures[g] ?: "none"
+        Section(stringResource(GESTURE_NAMES.getValue(g))) {
+            GESTURE_ACTIONS.forEach { (action, label) -> Choice(stringResource(label), current == action) { set { Look.gestures[g] = action } } }
+            val chosenApp = current.takeIf { it.startsWith("app:") }?.removePrefix("app:")?.let { id -> apps.find { it.id == id } }
+            Choice(chosenApp?.label?.lowercase() ?: stringResource(R.string.g_app), chosenApp != null) { pickApp(g) }
+        }
+    }
+}
+
+private class PermissionState(val label: Int, val on: Boolean, val open: Intent)
+
+/** Every optional permission the launcher uses, whether it's on, and where to change it. */
+@Composable
+private fun permissionStates(resumeTick: Int): List<PermissionState> {
+    val ctx = LocalContext.current
+    return remember(resumeTick, Drive.permTick) {
+        fun granted(p: String) = ctx.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+        val appDetails = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${ctx.packageName}"))
+        val listeners = android.provider.Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners") ?: ""
+        listOfNotNull(
+            PermissionState(R.string.p_notifications, ctx.packageName in listeners, Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)),
+            PermissionState(R.string.p_accessibility, LockService.instance != null, Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)),
+            PermissionState(R.string.p_usage, ctx.hasUsageAccess(), Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)),
+            PermissionState(R.string.p_calendar, granted(Manifest.permission.READ_CALENDAR), appDetails),
+            PermissionState(R.string.p_location, granted(Manifest.permission.ACCESS_COARSE_LOCATION), appDetails),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PermissionState(R.string.p_nearby, granted(Manifest.permission.BLUETOOTH_CONNECT), appDetails) else null,
+            PermissionState(R.string.p_calls, granted(Manifest.permission.CALL_PHONE), appDetails),
         )
+    }
+}
+
+@Composable
+private fun PermissionsPage(resumeTick: Int) {
+    val ctx = LocalContext.current
+    BasicText(stringResource(R.string.perm_hint), Modifier.padding(top = 4.dp, bottom = 12.dp), style = SmallText.copy(fontSize = 13.sp))
+    val divider = Dim.copy(alpha = 0.35f)
+    permissionStates(resumeTick).forEachIndexed { i, p ->
+        if (i > 0) Box(Modifier.fillMaxWidth().height(0.5.dp).background(divider))
+        Row(
+            Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null) {
+                runCatching { ctx.startActivity(p.open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            }.padding(vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicText(stringResource(p.label), Modifier.weight(1f), style = RowText.copy(fontSize = 18.sp))
+            BasicText(stringResource(if (p.on) R.string.state_on else R.string.state_off), style = SmallText.copy(color = if (p.on) Fg else Dim))
+        }
     }
 }
 

@@ -570,6 +570,8 @@ class MainActivity : ComponentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) askBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
                 },
                 onPickContact = { runCatching { pickPhone.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)) } },
+                background = bgImage,
+                resumeTick = resumes,
                 onClose = { settingsOpen = false },
             ) else if (Drive.active) DriveScreen(
                 homeAddress = Look.homeAddress,

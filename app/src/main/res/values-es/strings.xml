@@ -99,4 +99,21 @@
     <string name="s_try">activar ahora</string>
     <string name="s_addr_hint">calle, ciudad</string>
     <string name="g_drive">modo manejo</string>
+    <string name="cat_appearance">apariencia</string>
+    <string name="cat_home">inicio</string>
+    <string name="cat_permissions">permisos</string>
+    <string name="s_bg_photo_short">foto</string>
+    <string name="s_no_car">sin auto</string>
+    <string name="s_contacts_count">%1$d contactos</string>
+    <string name="perm_summary">%1$d de %2$d activados</string>
+    <string name="perm_hint">todos opcionales: cada uno activa una función. tócalo para cambiarlo.</string>
+    <string name="p_notifications">acceso a notificaciones</string>
+    <string name="p_accessibility">bloqueo con doble toque</string>
+    <string name="p_usage">datos de uso</string>
+    <string name="p_calendar">calendario</string>
+    <string name="p_location">ubicación aproximada</string>
+    <string name="p_nearby">dispositivos cercanos (auto)</string>
+    <string name="p_calls">llamadas</string>
+    <string name="state_on">activado</string>
+    <string name="state_off">desactivado</string>
 </resources>
