@@ -129,6 +129,8 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -642,11 +644,13 @@ class MainActivity : ComponentActivity() {
                             if (isClean) Column {
                                 // widgets (optional) under the clock, then the favorites
                                 if (Look.showWidgets) WidgetArea()
-                                LazyColumn(Modifier.fadeEdges()) { items(favorites.mapNotNull { id -> apps.find { it.id == id } }, key = { it.id }) { AppRow(it) } }
+                                val favState = rememberLazyListState()
+                                LazyColumn(Modifier.fadeEdges(favState), favState) { items(favorites.mapNotNull { id -> apps.find { it.id == id } }, key = { it.id }) { AppRow(it) } }
                             }
                             else key(letter, q == null) { // fresh scroll position (and entrance animation) per letter / search
                                 val openedAt = remember { SystemClock.uptimeMillis() }
-                                LazyColumn(Modifier.fadeEdges()) {
+                                val listState = rememberLazyListState()
+                                LazyColumn(Modifier.fadeEdges(listState), listState) {
                                     itemsIndexed(listed, key = { _, app -> app.id }) { i, app -> Box(Modifier.enterAnim(i, openedAt)) { AppRow(app) } }
                                 }
                             }
@@ -1352,17 +1356,23 @@ private fun Modifier.longPressFirst(onLongPress: () -> Unit) = pointerInput(Unit
 }
 
 // Soft fade at top and bottom so the list dissolves at its edges
-private fun Modifier.fadeEdges() = graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-    .drawWithContent {
-        drawContent()
-        drawRect(
-            Brush.verticalGradient(
-                0f to Color.Transparent, 0.06f to Color.Black,
-                0.85f to Color.Black, 1f to Color.Transparent,
-            ),
-            blendMode = BlendMode.DstIn,
-        )
-    }
+// Fades an edge only while there's more list behind it — at the end of the list the last row stays fully visible
+@Composable
+private fun Modifier.fadeEdges(state: LazyListState): Modifier {
+    val top by animateFloatAsState(if (state.canScrollBackward) 1f else 0f, tween(150), label = "fadeTop")
+    val bottom by animateFloatAsState(if (state.canScrollForward) 1f else 0f, tween(150), label = "fadeBottom")
+    return graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+        .drawWithContent {
+            drawContent()
+            drawRect(
+                Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 1f - top), 0.06f to Color.Black,
+                    0.85f to Color.Black, 1f to Color.Black.copy(alpha = 1f - bottom),
+                ),
+                blendMode = BlendMode.DstIn,
+            )
+        }
+}
 
 /** Hand-drawn thin bell (sound), bell with a slash (silent), or phone with waves (vibrate) — matches the Jost strokes. */
 @Composable
