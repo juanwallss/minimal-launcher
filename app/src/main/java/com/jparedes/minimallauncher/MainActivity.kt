@@ -76,6 +76,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.saveable.rememberSaveable
 import android.media.AudioManager
 import androidx.compose.foundation.Canvas
@@ -611,7 +612,11 @@ class MainActivity : ComponentActivity() {
             val listPane: @Composable (Modifier) -> Unit = { m ->
                     Box(m) {
                         Crossfade(clean, animationSpec = tween(220), label = "home") { isClean ->
-                            if (isClean) WidgetArea()
+                            if (isClean) Column {
+                                // widgets (optional) under the clock, then the favorites
+                                if (Look.showWidgets) WidgetArea()
+                                LazyColumn(Modifier.fadeEdges()) { items(favorites.mapNotNull { id -> apps.find { it.id == id } }, key = { it.id }) { AppRow(it) } }
+                            }
                             else key(letter, q == null) { // fresh scroll position (and entrance animation) per letter / search
                                 val openedAt = remember { SystemClock.uptimeMillis() }
                                 LazyColumn(Modifier.fadeEdges()) {
@@ -622,6 +627,7 @@ class MainActivity : ComponentActivity() {
                     }
             }
             val recentsRow: @Composable () -> Unit = {
+                    if (clean) MiniPlayer(Modifier.padding(top = 12.dp, end = 24.dp))
                     // Recent apps: small, dimmer icons so they read apart from favorites; only on the clean home view
                     if (clean && Look.showRecents && recents.isNotEmpty()) Column(Modifier.padding(top = 12.dp)) {
                         BasicText(stringResource(R.string.recents), style = SmallText.copy(fontSize = 12.sp))

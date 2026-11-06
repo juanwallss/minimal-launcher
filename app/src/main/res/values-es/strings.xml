@@ -126,4 +126,5 @@
     <string name="msg_min">%d min</string>
     <string name="msg_reply">responder</string>
     <string name="msg_sent">enviado ✓</string>
+    <string name="s_widgets">widgets</string>
 </resources>

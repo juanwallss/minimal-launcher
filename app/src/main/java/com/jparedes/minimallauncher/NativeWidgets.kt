@@ -6,6 +6,12 @@ import android.content.ComponentName
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.Location
@@ -512,4 +518,52 @@ fun MoonIcon(phase: Float, color: Color, modifier: Modifier) = Canvas(modifier) 
     }
     if (kotlin.math.abs(phase - 0f) > 0.02f && kotlin.math.abs(phase - 1f) > 0.02f) drawPath(lit, color.copy(alpha = color.alpha * 0.85f))
     drawCircle(color, radius = r, center = c, style = Stroke(width = 1.4.dp.toPx()))
+}
+
+// ---------------------------------------------------------------- Mini player
+
+/**
+ * One-line player for the bottom of the home view: shown while something plays (and for a while after pausing,
+ * so it can be resumed). Cover · title / artist · previous, play-pause, next. Nothing at all otherwise.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MiniPlayer(modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    val media = rememberMediaNow()
+    val c = media.controller
+    val meta = remember(media.tick, c) { c?.metadata }
+    val playing = remember(media.tick, c) { c?.playbackState?.state == PlaybackState.STATE_PLAYING }
+    val seen = remember { longArrayOf(0L) } // last time we saw it playing; plain holder, not state (written during composition)
+    if (playing) seen[0] = SystemClock.elapsedRealtime()
+    val lastPlaying = seen[0]
+    val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
+    // ponytail: a paused player stays 10 min after the last play seen here; whole-session memory if that's too short
+    val show = c != null && title != null && (playing || SystemClock.elapsedRealtime() - lastPlaying < 10 * 60_000L && lastPlaying > 0)
+    AnimatedVisibility(show, modifier, enter = fadeIn(tween(250)) + expandVertically(tween(250)), exit = fadeOut(tween(200)) + shrinkVertically(tween(200))) {
+        if (c == null || meta == null || title == null) return@AnimatedVisibility
+        val controls = c.transportControls
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val art = remember(meta) {
+                (meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                    ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))?.asImageBitmap()
+            }
+            val open = { ctx.packageManager.getLaunchIntentForPackage(c.packageName)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }; Unit }
+            if (art != null) {
+                Image(art, null, Modifier.size(42.dp).clip(RoundedCornerShape(6.dp)).tap(open), contentScale = ContentScale.Crop, colorFilter = Grayscale)
+                Spacer(Modifier.width(12.dp))
+            }
+            Column(Modifier.weight(1f).tap(open)) {
+                BasicText(title.lowercase(), Modifier.basicMarquee(), style = RowText.copy(fontSize = 16.sp), maxLines = 1)
+                val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+                artist?.let { BasicText(it.lowercase(), style = SmallText.copy(fontSize = 12.sp), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            PlayerIcon("prev", Fg, Modifier.size(38.dp).clip(CircleShape).tap { controls.skipToPrevious() }.padding(10.dp))
+            Box(
+                Modifier.padding(horizontal = 4.dp).size(42.dp).clip(CircleShape).border(1.dp, Fg, CircleShape).tap { if (playing) controls.pause() else controls.play() },
+                contentAlignment = Alignment.Center,
+            ) { PlayerIcon(if (playing) "pause" else "play", Fg, Modifier.size(20.dp)) }
+            PlayerIcon("next", Fg, Modifier.size(38.dp).clip(CircleShape).tap { controls.skipToNext() }.padding(10.dp))
+        }
+    }
 }
