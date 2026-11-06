@@ -1212,9 +1212,9 @@ private fun LetterBar(letters: List<String>, selected: String?, horizontal: Bool
         )
     }
     BoxWithConstraints(if (horizontal) Modifier.fillMaxWidth().height(40.dp) else Modifier.width(44.dp).fillMaxHeight()) {
-        // side bar: compact 22dp cells, centered on the screen — not stretched over the whole height
+        // side bar: compact 22dp cells, sitting low (thumb reach) — not stretched over the whole height
         val stripH = minOf(maxHeight - pad * 2, 22.dp * letters.size)
-        val top = (maxHeight - stripH) / 2
+        val top = pad + (maxHeight - pad * 2 - stripH) * 0.8f
         if (horizontal) {
             // fixed-width cells so the strip doesn't shift when the selected letter grows
             Row(Modifier.fillMaxSize().onSizeChanged { stripLen = it.width.toFloat() }.then(strip), verticalAlignment = Alignment.CenterVertically) {
