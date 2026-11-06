@@ -164,7 +164,7 @@ fun DriveScreen(
     val now by produceState(LocalDateTime.now()) {
         while (true) { value = LocalDateTime.now(); delay(1000L * (60 - value.second)) }
     }
-    val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
+    val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp || screenWidthDp >= 600 }
     val header: @Composable () -> Unit = {
         // header: time · driving · exit
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

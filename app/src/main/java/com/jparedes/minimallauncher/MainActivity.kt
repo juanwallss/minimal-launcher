@@ -741,7 +741,10 @@ class MainActivity : ComponentActivity() {
                     }
             }
             val homeGesturesMod = if (clean) Modifier.pointerInput(Unit) { homeGestures() } else Modifier
-            val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp }
+            // two panes in landscape, and on any screen 600 dp+ wide (unfolded Fold, tablets)
+            val cfg = LocalConfiguration.current
+            val wide = cfg.screenWidthDp > cfg.screenHeightDp || cfg.screenWidthDp >= 600
+            val roomy = wide && cfg.screenHeightDp >= 600 // tall enough for the message card under the clock
             Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
                 if (Look.barLeft && !Look.barBottom) LetterBar(barLetters, letter, left = true) { letter = it; query = null; menuFor = null }
                 val side = if (Look.barLeft && !Look.barBottom) Modifier.padding(start = 8.dp, end = 20.dp) else Modifier.padding(start = 36.dp)
@@ -753,10 +756,12 @@ class MainActivity : ComponentActivity() {
                     recentsRow()
                     bottomBar()
                     Spacer(Modifier.height(28.dp))
-                } else Row(Modifier.weight(1f).then(homeGesturesMod).then(side).padding(top = 20.dp)) {
-                    // landscape: clock and recents on the left; widgets / list / search on the right
+                } else Row(Modifier.weight(1f).then(homeGesturesMod).then(side).padding(top = if (roomy) 40.dp else 20.dp)) {
+                    // wide: clock (and, when tall, the message card) and recents on the left; widgets / list / search on the right
                     Column(Modifier.weight(1f).fillMaxHeight()) {
-                        Clock(bottomGap = 12.dp, maxSp = 88f)
+                        // phone landscape caps the clock (short screen); Fold / tablet use the chosen size
+                        if (roomy) Clock(bottomGap = 32.dp) else Clock(bottomGap = 12.dp, maxSp = 88f)
+                        if (roomy) messageCard()
                         Spacer(Modifier.weight(1f))
                         recentsRow()
                         bottomBar()
@@ -764,7 +769,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Column(Modifier.weight(1.3f).fillMaxHeight().padding(start = 24.dp, top = 12.dp)) {
                         if (q != null) SearchField(q) { listed.firstOrNull()?.let(::open) }
-                        messageCard()
+                        if (!roomy) messageCard()
                         listPane(Modifier.weight(1f))
                     }
                 }
