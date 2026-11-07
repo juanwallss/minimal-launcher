@@ -201,4 +201,10 @@
     <string name="r_1">Voy manejando, te contesto en un rato</string>
     <string name="r_2">Voy en camino</string>
     <string name="r_3">Ok 👍</string>
+    <string name="st_rings">anillos</string>
+    <string name="st_orbit">órbita</string>
+    <string name="st_dots">puntos</string>
+    <string name="st_horizon">horizonte</string>
+    <string name="s_reset">restablecer ajustes</string>
+    <string name="s_reset_confirm">toca otra vez para restablecer</string>
 </resources>

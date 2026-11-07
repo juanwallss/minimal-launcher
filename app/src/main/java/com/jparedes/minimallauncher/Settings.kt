@@ -14,6 +14,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.Process
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
 import android.text.format.DateFormat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -174,6 +176,16 @@ internal object Look {
         GESTURE_DEFAULTS.forEach { (g, default) -> gestures[g] = p.getString("g_$g", default)!! }
     }
 
+    /** Back to defaults: appearance, home, gestures, driving messages. Keeps favorites, hidden apps, widgets and the car/contacts/addresses. */
+    fun reset(ctx: Context) {
+        val e = prefs?.edit() ?: return
+        (listOf("bg", "bgDim", "bgGray", "clockSize", "clockStyle", "textSize", "clock24", "barBottom", "barLeft", "barHaptics", "font",
+            "info", "infoOff", "theme", "showRecents", "showMessages", "showWidgets", "quickMsgs", "driveReplies") + GESTURE_DEFAULTS.keys.map { "g_$it" })
+            .forEach { e.remove(it) }
+        e.commit()
+        load(ctx)
+    }
+
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
@@ -245,6 +257,7 @@ fun SettingsScreen(
     onClose: () -> Unit,
 ) {
     fun set(change: () -> Unit) { change(); Look.save() }
+    val ctx = LocalContext.current
     var page by remember { mutableStateOf<SettingsPage?>(null) }
     var pickingAppFor by remember { mutableStateOf<String?>(null) }
     BackHandler(enabled = page != null || pickingAppFor != null) {
@@ -276,6 +289,16 @@ fun SettingsScreen(
                         stringResource(R.string.s_done),
                         Modifier.padding(top = 40.dp).clickable(interactionSource = null, indication = null, onClick = onClose).padding(vertical = 6.dp),
                         style = RowText.copy(fontSize = 19.sp),
+                    )
+                    // two taps: the first one asks, the second resets
+                    var confirm by remember { mutableStateOf(false) }
+                    LaunchedEffect(confirm) { if (confirm) { delay(3000); confirm = false } }
+                    BasicText(
+                        stringResource(if (confirm) R.string.s_reset_confirm else R.string.s_reset),
+                        Modifier.padding(top = 28.dp).clickable(interactionSource = null, indication = null) {
+                            if (confirm) { Look.reset(ctx); onBackgroundChanged(); confirm = false } else confirm = true
+                        }.padding(vertical = 6.dp),
+                        style = SmallText.copy(color = if (confirm) Fg else Dim),
                     )
                 } else {
                     // ‹ settings  /  page title
@@ -429,9 +452,9 @@ private fun Preview(background: ImageBitmap?) {
             val time = now.format(java.time.format.DateTimeFormatter.ofPattern(Look.timePattern())).lowercase()
             val short = now.format(java.time.format.DateTimeFormatter.ofPattern("d MMM")).trimEnd('.')
             ClockFace(style, now, Look.clockSp * 0.55f, band = listOf(time.uppercase(), short.uppercase()))
-            val line = when (style) {
-                ClockStyle.DAY, ClockStyle.BINARY -> "$time  ·  ${short.lowercase()}"
-                ClockStyle.SPLIT -> ""
+            val line = when {
+                style == ClockStyle.DAY || style.timeBelow -> "$time  ·  ${short.lowercase()}"
+                style == ClockStyle.SPLIT -> ""
                 else -> now.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase()
             }
             if (line.isNotEmpty()) BasicText(line, style = SmallText.copy(fontSize = 12.sp))

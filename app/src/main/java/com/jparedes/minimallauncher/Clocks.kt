@@ -54,7 +54,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Clock faces (settings → appearance → clock style). */
-enum class ClockStyle(val label: Int) {
+enum class ClockStyle(val label: Int, val timeBelow: Boolean = false) { // timeBelow: the face doesn't show digits, so the time goes to the line under it
     THIN(R.string.st_thin),    // hairline digits (the original)
     BOLD(R.string.st_bold),    // heavy, tight digits
     DAY(R.string.st_day),      // huge weekday "Mon." — time and date go to the line below
@@ -62,7 +62,11 @@ enum class ClockStyle(val label: Int) {
     ANALOG(R.string.st_analog),     // thin ring with two hands
     STACK(R.string.st_stack),       // heavy hours over hairline minutes
     PROGRESS(R.string.st_progress), // thin time + a line showing how much of the day has gone
-    BINARY(R.string.st_binary),     // one column of dots per digit (8·4·2·1), the time in words goes to the line below
+    BINARY(R.string.st_binary, true), // one column of dots per digit (8·4·2·1)
+    RINGS(R.string.st_rings, true),   // two concentric arcs: minutes outside (hairline), hours inside (heavier)
+    ORBIT(R.string.st_orbit, true),   // the hour is a planet around the center, the minute a moon around it
+    DOTS(R.string.st_dots, true),     // a row of 12 hour dots over a 12×5 field of minute dots
+    HORIZON(R.string.st_horizon, true), // a sun crossing the sky over a horizon line; below it at night
 }
 
 /**
@@ -220,6 +224,71 @@ fun ClockFace(style: ClockStyle, now: LocalDateTime, sp: Float, band: List<Strin
                         drawCircle(if (on) color else off, u / 2, Offset(cols[i] * u + u / 2, row * 2.2f * u + u / 2))
                     }
                 }
+            }
+        }
+        ClockStyle.RINGS -> {
+            val off = Dim.copy(alpha = 0.25f)
+            Canvas(Modifier.padding(vertical = 8.dp).size((sp * 1.5f).dp).then(actions)) {
+                val min = now.minute + now.second / 60f
+                fun ring(r: Float, w: Float, f: Float) {
+                    val tl = center - Offset(r, r)
+                    drawCircle(off, r, center, style = Stroke(1.dp.toPx()))
+                    drawArc(color, -90f, 360f * f, false, tl, Size(r * 2, r * 2), style = Stroke(w, cap = StrokeCap.Round))
+                    val a = (f * 360f - 90f) * PI.toFloat() / 180f
+                    drawCircle(color, w * 1.3f, center + Offset(cos(a) * r, sin(a) * r))
+                }
+                val r = size.minDimension / 2 - 6.dp.toPx()
+                ring(r, 1.2.dp.toPx(), min / 60f)
+                ring(r * 0.62f, 3.dp.toPx(), (now.hour % 12 + min / 60f) / 12f)
+            }
+        }
+
+        ClockStyle.ORBIT -> {
+            val dim = Dim
+            Canvas(Modifier.padding(vertical = 8.dp).size((sp * 1.6f).dp).then(actions)) {
+                fun at(c: Offset, turns: Float, len: Float): Offset {
+                    val a = turns * 2 * PI.toFloat() - PI.toFloat() / 2
+                    return c + Offset(cos(a) * len, sin(a) * len)
+                }
+                val r = size.minDimension / 2
+                val moonR = r * 0.3f
+                val planetR = r - moonR - 4.dp.toPx()
+                val min = now.minute + now.second / 60f
+                val planet = at(center, (now.hour % 12 + min / 60f) / 12f, planetR)
+                drawCircle(dim.copy(alpha = 0.35f), planetR, center, style = Stroke(1.dp.toPx()))
+                drawCircle(dim, 2.dp.toPx(), center)
+                drawCircle(dim.copy(alpha = 0.35f), moonR, planet, style = Stroke(1.dp.toPx()))
+                drawCircle(color, 7.dp.toPx(), planet)
+                drawCircle(color, 3.dp.toPx(), at(planet, min / 60f, moonR))
+            }
+        }
+
+        ClockStyle.DOTS -> {
+            val off = Dim.copy(alpha = 0.22f)
+            val u = (sp * 0.17f).dp                                // grid step
+            val h12 = (now.hour % 12).let { if (it == 0) 12 else it }
+            Canvas(Modifier.padding(vertical = 10.dp).size(u * 12, u * 6.6f).then(actions)) {
+                val s = u.toPx()
+                for (i in 0 until 12) drawCircle(if (i < h12) color else off, s * 0.3f, Offset(i * s + s / 2, s / 2))
+                for (k in 0 until 60) drawCircle(if (k < now.minute) color else off, s * 0.13f, Offset(k % 12 * s + s / 2, (1.6f + k / 12) * s + s / 2))
+            }
+        }
+
+        ClockStyle.HORIZON -> {
+            val dim = Dim
+            Canvas(Modifier.padding(vertical = 8.dp).size((sp * 2.4f).dp, (sp * 1.3f).dp).then(actions)) {
+                val y0 = size.height * 0.55f                       // the horizon
+                val r = size.height * 0.4f
+                val c = Offset(size.width / 2, y0)
+                // day fraction → 0:00 at the bottom, 6:00 east (left), noon on top, 18:00 west
+                val phi = (now.hour * 60 + now.minute) / 1440f * 2 * PI.toFloat()
+                val sun = c + Offset(-r * sin(phi), r * cos(phi))
+                val tl = c - Offset(r, r)
+                drawArc(dim.copy(alpha = 0.45f), 180f, 180f, false, tl, Size(r * 2, r * 2), style = Stroke(1.dp.toPx()))
+                drawArc(dim.copy(alpha = 0.18f), 0f, 180f, false, tl, Size(r * 2, r * 2), style = Stroke(1.dp.toPx()))
+                drawLine(dim, Offset(0f, y0), Offset(size.width, y0), 1.dp.toPx())
+                if (sun.y <= y0) drawCircle(color, 9.dp.toPx(), sun)
+                else drawCircle(color.copy(alpha = 0.7f), 7.dp.toPx(), sun, style = Stroke(1.5.dp.toPx())) // night: an outline below the line
             }
         }
     }

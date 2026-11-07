@@ -1022,9 +1022,9 @@ class MainActivity : ComponentActivity() {
             // line under it: the date (DAY also carries the time; SPLIT already shows time/date/temp in its band)
             val info = Look.info // what the owner chose to show under the time (settings → home)
             val showDate = Look.INFO_DATE in info
-            val date = when (style) {
-                ClockStyle.DAY, ClockStyle.BINARY -> if (showDate) "$timeText  ·  ${shortDate.lowercase()}" else timeText
-                ClockStyle.SPLIT -> ""
+            val date = when {
+                style == ClockStyle.DAY || style.timeBelow -> if (showDate) "$timeText  ·  ${shortDate.lowercase()}" else timeText
+                style == ClockStyle.SPLIT -> ""
                 else -> if (showDate) now.format(DateTimeFormatter.ofPattern("EEEE d MMMM")).lowercase() else ""
             }
             Row(Modifier.padding(top = if (style == ClockStyle.SPLIT) 6.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -201,4 +201,10 @@
     <string name="r_1">I\'m driving, I\'ll reply soon</string>
     <string name="r_2">On my way</string>
     <string name="r_3">OK 👍</string>
+    <string name="st_rings">rings</string>
+    <string name="st_orbit">orbit</string>
+    <string name="st_dots">dots</string>
+    <string name="st_horizon">horizon</string>
+    <string name="s_reset">reset to defaults</string>
+    <string name="s_reset_confirm">tap again to reset</string>
 </resources>

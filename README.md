@@ -29,7 +29,7 @@ Para volver a tu launcher anterior: Ajustes → Aplicaciones → Aplicaciones pr
 ## Qué tiene
 
 - **Barra de letras** a la derecha, izquierda (zurdos) o abajo, con burbuja y vibración ajustable. La **★** arriba muestra tus favoritos.
-- **8 estilos de reloj**: fino, grueso, día, partido, analógico, apilado, progreso del día y binario.
+- **12 estilos de reloj**: fino, grueso, día, partido, analógico, apilado, progreso del día, binario y cuatro abstractos (anillos, órbita, puntos, horizonte).
 - **4 fuentes**: Jost, Fraunces, JetBrains Mono y Space Grotesk.
 - **Temas**: un color de acento (ámbar, salvia, mar, rosa, lila) o tomado de tu fondo de pantalla. Sigue el modo claro/oscuro del sistema.
 - **Bajo la hora**, lo que elijas: fecha, clima, modo de sonido, wifi/datos, batería, próxima alarma, próximo evento, notificaciones.
