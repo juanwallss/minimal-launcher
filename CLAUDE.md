@@ -57,7 +57,7 @@ personal content, and delete the image afterwards. Don't put the owner's app lis
 | `MessageCard.kt` | Home-view card for the newest chat notification: actions, suggested replies, free reply field. Debug: `--ez msg_test true` shows a fake chat. |
 | `Clocks.kt` | `ClockStyle` + `ClockFace`: thin, bold, day, split, analog, stacked, day progress, binary. Debug extras: `--ei clock_style N`, `--es theme sea`, `--ez bar_left true`. |
 | `Onboarding.kt` | First-run intro (welcome · make it home via `RoleManager` · how it works · optional permissions). Shown while `Look.onboarded` is false. Debug: `--ez onboarding true`. |
-| `Drive.kt` | Driving mode: `Drive` state, car Bluetooth receiver, `DriveScreen` (big player, nav card from the maps app's ongoing notification via `NotificationDots.nav`, quick WhatsApp messages, calls), `DriveAsk` card on home when the car connects (`Drive.ask`; never switches on by itself). Debug: `--ez drive true`, `--ez nav_test true`, `--ez drive_ask true`. |
+| `Drive.kt` | Driving mode: `Drive` state, car Bluetooth receiver, `DriveScreen` (big player, nav card from the maps app's ongoing notification via `NotificationDots.nav`, quick WhatsApp messages, calls; `Pages` = swipeable buttons | notifications in large type from `NotificationDots.notes`), `DriveAsk` card on home when the car connects (`Drive.ask`; never switches on by itself). Debug: `--ez drive true`, `--ez nav_test true`, `--ez drive_ask true`. |
 | `res/values/strings.xml` + `values-es/` | **Every visible string**, English base + Spanish. Add new strings to both. |
 | `res/values/themes.xml` | Transparent window theme — see gotchas. |
 

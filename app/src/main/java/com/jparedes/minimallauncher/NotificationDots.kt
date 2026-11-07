@@ -34,13 +34,16 @@ class NotificationDots : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) = refresh()
     override fun onNotificationRemoved(sbn: StatusBarNotification?) = refresh()
     override fun onNotificationRankingUpdate(rankingMap: RankingMap?) = refresh() // smart replies arrive here, a bit after the post
-    override fun onListenerDisconnected() { instance = null; packages.value = emptySet(); messages.value = emptyList(); nav.value = null }
+    override fun onListenerDisconnected() { instance = null; packages.value = emptySet(); messages.value = emptyList(); notes.value = emptyList(); nav.value = null }
 
     private fun refresh() {
         val active = runCatching { activeNotifications.toList() }.getOrDefault(emptyList())
         packages.value = active.filter { it.isClearable }.map { it.packageName }.toSet()
         val ranking = currentRanking
         messages.value = active.mapNotNull { sbn -> toMessage(sbn, ranking) }.sortedByDescending { it.time }
+        // every dismissable notification (driving mode's big notifications page): chats keep their reply action
+        notes.value = active.filter { it.isClearable && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 && it.packageName != packageName }
+            .mapNotNull { sbn -> toMessage(sbn, ranking) ?: toNote(sbn) }.sortedByDescending { it.time }
         nav.value = active.firstOrNull { it.packageName in NAV_APPS && it.isOngoing }?.let(::toNav)
     }
 
@@ -55,6 +58,15 @@ class NotificationDots : NotificationListenerService() {
             android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888).also { d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(it)) }
         }.getOrNull()
         return Nav(s(Notification.EXTRA_TITLE), s(Notification.EXTRA_TEXT), s(Notification.EXTRA_SUB_TEXT), icon, n.contentIntent)
+    }
+
+    private fun toNote(sbn: StatusBarNotification): Message? {
+        val n = sbn.notification
+        val e = n.extras
+        val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+        val text = (e.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: e.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
+        if (title.isNullOrBlank() && text.isBlank()) return null
+        return Message(sbn.key, sbn.packageName, title.orEmpty(), text, sbn.postTime, null, emptyList(), emptyList(), n.contentIntent)
     }
 
     private fun toMessage(sbn: StatusBarNotification, rankings: RankingMap?): Message? {
@@ -82,6 +94,7 @@ class NotificationDots : NotificationListenerService() {
     companion object {
         val packages = mutableStateOf(emptySet<String>())
         val messages = mutableStateOf(emptyList<Message>())
+        val notes = mutableStateOf(emptyList<Message>()) // all dismissable notifications, newest first
         val nav = mutableStateOf<Nav?>(null)
         private val NAV_APPS = setOf("com.google.android.apps.maps", "com.waze")
         private var instance: NotificationDots? = null

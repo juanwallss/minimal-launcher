@@ -194,4 +194,7 @@
     <string name="drive_ask">¿modo conducción?</string>
     <string name="drive_yes">sí</string>
     <string name="drive_no">no</string>
+    <string name="drive_page_buttons">botones</string>
+    <string name="drive_page_notes">notificaciones</string>
+    <string name="drive_no_notes">sin notificaciones</string>
 </resources>

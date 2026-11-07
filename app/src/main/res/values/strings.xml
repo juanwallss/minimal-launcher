@@ -194,4 +194,7 @@
     <string name="drive_ask">driving mode?</string>
     <string name="drive_yes">yes</string>
     <string name="drive_no">no</string>
+    <string name="drive_page_buttons">buttons</string>
+    <string name="drive_page_notes">notifications</string>
+    <string name="drive_no_notes">no notifications</string>
 </resources>

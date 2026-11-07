@@ -8,6 +8,13 @@ import android.media.MediaMetadata
 import android.media.session.PlaybackState
 import android.os.Build
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.Canvas
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -254,7 +261,7 @@ fun DriveScreen(
                 NotificationDots.nav.value?.let { NavCard(it) }
             }
             DriveMusic(Modifier.padding(vertical = 28.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(28.dp)) { navAndCalls() }
+            Pages(Modifier) { Column(verticalArrangement = Arrangement.spacedBy(28.dp)) { navAndCalls() } }
         }
     } else Row(outer, horizontalArrangement = Arrangement.spacedBy(32.dp)) {
         // landscape (phone on a car mount): player on the left, destinations and calls on the right
@@ -263,7 +270,9 @@ fun DriveScreen(
             NotificationDots.nav.value?.let { NavCard(it, Modifier.padding(top = 16.dp)) }
             DriveMusic(Modifier.weight(1f))
         }
-        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically)) { navAndCalls() }
+        Pages(Modifier.weight(1f).fillMaxHeight()) {
+            Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically)) { navAndCalls() }
+        }
     }
 }
 
@@ -282,6 +291,70 @@ private fun NavCard(n: Nav, modifier: Modifier = Modifier) {
             BasicText(n.title.ifBlank { stringResource(R.string.drive_navigating) }, style = RowText.copy(fontSize = 28.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (n.text.isNotBlank()) BasicText(n.text, Modifier.padding(top = 2.dp), style = RowText.copy(fontSize = 18.sp, color = Fg.copy(alpha = 0.8f)), maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (n.sub.isNotBlank()) BasicText(n.sub, Modifier.padding(top = 4.dp), style = SmallText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Two pages under the player — the big buttons and the notifications in large type — swiped sideways or picked by name. */
+@Composable
+private fun Pages(modifier: Modifier, buttons: @Composable () -> Unit) {
+    val pager = rememberPagerState { 2 }
+    val scope = rememberCoroutineScope()
+    val count = NotificationDots.notes.value.size
+    Column(modifier) {
+        Row(Modifier.padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(stringResource(R.string.drive_page_buttons), stringResource(R.string.drive_page_notes) + if (count > 0) "  $count" else "")
+                .forEachIndexed { i, label ->
+                    val on = pager.currentPage == i
+                    BasicText(
+                        label,
+                        Modifier.clip(RoundedCornerShape(50)).then(if (on) Modifier.background(Fg.copy(alpha = 0.08f)) else Modifier)
+                            .clickable { scope.launch { pager.animateScrollToPage(i) } }.padding(horizontal = 16.dp, vertical = 10.dp),
+                        style = SmallText.copy(fontSize = 16.sp, color = if (on) Fg else Dim),
+                    )
+                }
+        }
+        HorizontalPager(pager, Modifier.fillMaxWidth(), pageSpacing = 28.dp, verticalAlignment = Alignment.Top) { page ->
+            if (page == 0) buttons() else DriveNotes()
+        }
+    }
+}
+
+/** Notifications in large type: app · when, who / title, the text. Tap opens it, × dismisses it. */
+@Composable
+private fun DriveNotes() {
+    val ctx = LocalContext.current
+    val notes = NotificationDots.notes.value
+    if (notes.isEmpty()) {
+        BasicText(stringResource(R.string.drive_no_notes), Modifier.padding(top = 12.dp), style = RowText.copy(fontSize = 22.sp, color = Dim))
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        notes.take(8).forEach { m ->
+            val app = remember(m.pkg) { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(m.pkg, 0)).toString().lowercase() } }.getOrDefault("") }
+            val ago = (System.currentTimeMillis() - m.time) / 60_000
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Fg.copy(alpha = 0.06f))
+                    .clickable { NotificationDots.send(ctx, m.open) }.padding(start = 20.dp, top = 16.dp, bottom = 18.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    BasicText(
+                        "$app  ·  " + if (ago < 1) stringResource(R.string.msg_now) else stringResource(R.string.msg_min, ago.toInt()),
+                        style = SmallText.copy(fontSize = 15.sp), maxLines = 1,
+                    )
+                    if (m.title.isNotBlank()) BasicText(m.title, Modifier.padding(top = 6.dp), style = RowText.copy(fontSize = 26.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (m.text.isNotBlank()) BasicText(
+                        m.text, Modifier.padding(top = 4.dp), style = RowText.copy(fontSize = 21.sp, color = Fg.copy(alpha = 0.8f)),
+                        maxLines = 4, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // dismiss
+                val c = Dim
+                Canvas(Modifier.size(52.dp).clip(CircleShape).clickable { NotificationDots.dismiss(m) }.padding(17.dp)) {
+                    drawLine(c, Offset.Zero, Offset(size.width, size.height), 1.5.dp.toPx(), StrokeCap.Round)
+                    drawLine(c, Offset(size.width, 0f), Offset(0f, size.height), 1.5.dp.toPx(), StrokeCap.Round)
+                }
+            }
         }
     }
 }
