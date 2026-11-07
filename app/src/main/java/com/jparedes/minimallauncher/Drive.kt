@@ -8,6 +8,8 @@ import android.media.MediaMetadata
 import android.media.session.PlaybackState
 import android.os.Build
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.Canvas
@@ -135,6 +137,12 @@ internal fun DriveAsk(onYes: () -> Unit, onNo: () -> Unit, modifier: Modifier = 
             BigButton(stringResource(R.string.drive_no), dim = true, onClick = onNo)
         }
     }
+}
+
+/** The three replies for answerable notifications while driving: the user's own, or the defaults. */
+@Composable
+internal fun driveReplies(): List<String> = Look.driveReplies.ifEmpty {
+    listOf(stringResource(R.string.r_1), stringResource(R.string.r_2), stringResource(R.string.r_3))
 }
 
 /** The three quick messages: the user's own, or the defaults in the phone's language. */
@@ -320,6 +328,7 @@ private fun Pages(modifier: Modifier, buttons: @Composable () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 /** Notifications in large type: app · when, who / title, the text. Tap opens it, × dismisses it. */
 @Composable
 private fun DriveNotes() {
@@ -329,6 +338,9 @@ private fun DriveNotes() {
         BasicText(stringResource(R.string.drive_no_notes), Modifier.padding(top = 12.dp), style = RowText.copy(fontSize = 22.sp, color = Dim))
         return
     }
+    val replies = driveReplies().filter { it.isNotBlank() }
+    var sent by remember { mutableStateOf<String?>(null) } // key of the notification just answered
+    LaunchedEffect(sent) { if (sent != null) { delay(2000); sent = null } }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         notes.take(8).forEach { m ->
             val app = remember(m.pkg) { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(m.pkg, 0)).toString().lowercase() } }.getOrDefault("") }
@@ -347,6 +359,14 @@ private fun DriveNotes() {
                         m.text, Modifier.padding(top = 4.dp), style = RowText.copy(fontSize = 21.sp, color = Fg.copy(alpha = 0.8f)),
                         maxLines = 4, overflow = TextOverflow.Ellipsis,
                     )
+                    // answerable (chats): one tap sends a reply through the app's own reply action
+                    if (m.reply != null && replies.isNotEmpty()) FlowRow(
+                        Modifier.padding(top = 14.dp, end = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (sent == m.key) BigPill(stringResource(R.string.msg_sent)) {}
+                        else replies.forEach { r -> BigPill(r) { if (NotificationDots.reply(ctx, m, r, fromSuggestion = false)) sent = m.key } }
+                    }
                 }
                 // dismiss
                 val c = Dim

@@ -347,6 +347,8 @@ class MainActivity : ComponentActivity() {
                     listOf("Nothing much", "Not much, you?", "How are you?"), null),
                 Message("test2", packageName, "x", "", 0, null, emptyList(), emptyList(), null),
             )
+            // and on driving mode's notifications page
+            NotificationDots.notes.value = NotificationDots.messages.value.take(1) + NotificationDots.notes.value.filter { it.pkg != packageName }
         }
         // debug: --ez nav_test true|false fakes the maps app's turn-by-turn card in driving mode
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("nav_test"))

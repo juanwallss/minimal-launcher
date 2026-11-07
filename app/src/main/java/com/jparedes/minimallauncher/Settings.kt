@@ -106,6 +106,7 @@ internal object Look {
     var driveContacts by mutableStateOf(emptyList<DriveContact>())
     var quickTo by mutableStateOf<String?>(null)          // number of the drive contact that gets quick WhatsApp messages
     var quickMsgs by mutableStateOf(emptyList<String>())  // exactly 3, or empty = the defaults in the phone's language
+    var driveReplies by mutableStateOf(emptyList<String>()) // replies offered on answerable notifications while driving; same rule
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
     var barLeft by mutableStateOf(false)   // side bar on the left edge (left-handed)
     var font by mutableIntStateOf(0)       // index in FONTS
@@ -169,6 +170,7 @@ internal object Look {
             .mapNotNull { line -> line.split("\t").takeIf { it.size == 2 }?.let { DriveContact(it[0], it[1]) } }
         quickTo = p.getString("quickTo", null)
         quickMsgs = p.getString("quickMsgs", "")!!.split("\n").takeIf { it.size == 3 } ?: emptyList()
+        driveReplies = p.getString("driveReplies", "")!!.split("\n").takeIf { it.size == 3 } ?: emptyList()
         GESTURE_DEFAULTS.forEach { (g, default) -> gestures[g] = p.getString("g_$g", default)!! }
     }
 
@@ -180,6 +182,7 @@ internal object Look {
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
             .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
             .putString("quickTo", quickTo).putString("quickMsgs", quickMsgs.joinToString("\n"))
+            .putString("driveReplies", driveReplies.joinToString("\n"))
         gestures.forEach { (g, action) -> e.putString("g_$g", action) }
         e.apply()
     }
@@ -628,6 +631,12 @@ private fun DriveSettings(set: (() -> Unit) -> Unit, onAskBluetooth: () -> Unit,
         msgs.forEachIndexed { i, m ->
             AddressField(stringResource(R.string.s_quick_msg, i + 1), m, hint = "") { v -> set { Look.quickMsgs = msgs.toMutableList().also { it[i] = v.replace("\n", " ") } } }
         }
+    }
+    // replies on answerable notifications (driving mode's notifications page); a blank one is not shown
+    Column(Modifier.padding(top = 30.dp)) { SectionLabel(stringResource(R.string.s_replies)) }
+    val replies = driveReplies()
+    replies.forEachIndexed { i, r ->
+        AddressField(stringResource(R.string.s_quick_msg, i + 1), r, hint = "") { v -> set { Look.driveReplies = replies.toMutableList().also { it[i] = v.replace("\n", " ") } } }
     }
     Section(stringResource(R.string.s_drive_now)) {
         Choice(stringResource(R.string.s_try), Drive.active) { Drive.set(ctx, true); onClose() }

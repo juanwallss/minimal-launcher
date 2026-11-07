@@ -197,4 +197,8 @@
     <string name="drive_page_buttons">botones</string>
     <string name="drive_page_notes">notificaciones</string>
     <string name="drive_no_notes">sin notificaciones</string>
+    <string name="s_replies">respuestas rápidas (notificaciones)</string>
+    <string name="r_1">Voy manejando, te contesto en un rato</string>
+    <string name="r_2">Voy en camino</string>
+    <string name="r_3">Ok 👍</string>
 </resources>
