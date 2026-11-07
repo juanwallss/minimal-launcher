@@ -315,15 +315,26 @@ private fun DriveMusic(modifier: Modifier) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
         if (c == null || title == null) {
             BasicText(stringResource(R.string.music_nothing), style = RowText.copy(fontSize = 22.sp, color = Dim))
-            // one big tap to start the last player used
+            // installed music players (apps that declare themselves as the music app category), last used first
             val ctx = LocalContext.current
-            val last = remember { ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE).getString("lastPlayer", null)?.takeIf { ctx.packageManager.getLaunchIntentForPackage(it) != null } }
-            val label = remember(last) {
-                last?.let { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(it, 0)).toString().lowercase() } }.getOrNull() }
+            val players = remember {
+                val pm = ctx.packageManager
+                val last = ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE).getString("lastPlayer", null)
+                pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC), 0)
+                    .map { it.activityInfo.packageName }.distinct()
+                    .mapNotNull { pkg -> pm.getLaunchIntentForPackage(pkg)?.let { pkg to it } }
+                    .sortedBy { (pkg, _) -> if (pkg == last) 0 else 1 }
+                    .take(4)
+                    .map { (pkg, launch) -> pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString().lowercase() to launch }
             }
-            if (last != null && label != null) Row(Modifier.padding(top = 20.dp)) {
-                BigButton(stringResource(R.string.music_open, label)) {
-                    ctx.packageManager.getLaunchIntentForPackage(last)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+            if (players.isNotEmpty()) Column(Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                players.chunked(2).forEach { pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        pair.forEach { (label, launch) ->
+                            BigButton(label) { runCatching { ctx.startActivity(Intent(launch).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
                 }
             }
             return@Column
