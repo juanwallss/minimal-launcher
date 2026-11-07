@@ -202,7 +202,11 @@ fun rememberMediaNow(): MediaNow {
         fun pick(list: List<MediaController>?) {
             controller?.unregisterCallback(callback)
             controller = list?.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: list?.firstOrNull()
-            controller?.let { it.registerCallback(callback); prefs.edit().putString("lastPlayer", it.packageName).apply() }
+            controller?.let {
+                it.registerCallback(callback)
+                // only apps that can be opened (a phone call's session belongs to the system "phone calls" service)
+                if (ctx.packageManager.getLaunchIntentForPackage(it.packageName) != null) prefs.edit().putString("lastPlayer", it.packageName).apply()
+            }
             tick++
         }
         val onChanged = MediaSessionManager.OnActiveSessionsChangedListener { pick(it) }
@@ -253,7 +257,7 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
             c == null || title == null -> {
                 Header(stringResource(R.string.widget_music))
                 BasicText(stringResource(R.string.music_nothing), style = SmallText)
-                prefs.getString("lastPlayer", null)?.let { pkg -> appLabel(pkg)?.let { Hint(stringResource(R.string.music_open, it), onClick = { openApp(pkg) }) } }
+                prefs.getString("lastPlayer", null)?.takeIf { ctx.packageManager.getLaunchIntentForPackage(it) != null }?.let { pkg -> appLabel(pkg)?.let { Hint(stringResource(R.string.music_open, it), onClick = { openApp(pkg) }) } }
             }
             else -> {
                 // cover + title / artist · app

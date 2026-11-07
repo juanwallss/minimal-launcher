@@ -317,7 +317,7 @@ private fun DriveMusic(modifier: Modifier) {
             BasicText(stringResource(R.string.music_nothing), style = RowText.copy(fontSize = 22.sp, color = Dim))
             // one big tap to start the last player used
             val ctx = LocalContext.current
-            val last = remember { ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE).getString("lastPlayer", null) }
+            val last = remember { ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE).getString("lastPlayer", null)?.takeIf { ctx.packageManager.getLaunchIntentForPackage(it) != null } }
             val label = remember(last) {
                 last?.let { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(it, 0)).toString().lowercase() } }.getOrNull() }
             }
