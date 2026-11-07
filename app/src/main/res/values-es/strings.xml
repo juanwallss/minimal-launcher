@@ -190,4 +190,8 @@
     <string name="near_gas">gasolinera</string>
     <string name="near_coffee">café</string>
     <string name="near_parking">estacionamiento</string>
+    <string name="drive_ask_car">carro conectado</string>
+    <string name="drive_ask">¿modo conducción?</string>
+    <string name="drive_yes">sí</string>
+    <string name="drive_no">no</string>
 </resources>

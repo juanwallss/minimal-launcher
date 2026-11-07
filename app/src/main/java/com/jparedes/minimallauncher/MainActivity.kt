@@ -355,6 +355,9 @@ class MainActivity : ComponentActivity() {
         // debug: --ez drive true|false switches driving mode
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("drive"))
             Drive.set(this, intent.getBooleanExtra("drive", false))
+        // debug: --ez drive_ask true|false shows the "car connected · driving mode?" card
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("drive_ask"))
+            Drive.setAsk(this, intent.getBooleanExtra("drive_ask", false))
     }
     private var weatherTestCode by mutableStateOf<Int?>(null)
     private var moonTestPhase by mutableStateOf<Float?>(null) // debug: --ef moon <0..1> forces night + that phase
@@ -715,6 +718,18 @@ class MainActivity : ComponentActivity() {
                     }
             }
             val messageCard: @Composable () -> Unit = {
+                    // car Bluetooth connected: ask before switching to driving mode
+                    AnimatedVisibility(
+                        clean && Drive.ask,
+                        enter = expandVertically(tween(320, easing = FastOutSlowInEasing)) + fadeIn(tween(260, delayMillis = 80)),
+                        exit = fadeOut(tween(160)) + shrinkVertically(tween(240, delayMillis = 60)),
+                    ) {
+                        DriveAsk(
+                            onYes = { Drive.set(this@MainActivity, true) },
+                            onNo = { Drive.setAsk(this@MainActivity, false) },
+                            modifier = Modifier.padding(bottom = 12.dp),
+                        )
+                    }
                     // newest chat notification, answerable in place; only on the clean home view
                     val msgs = NotificationDots.messages.value
                     // appears: room opens, card drops in and settles; a newer chat pushes the old card up and out

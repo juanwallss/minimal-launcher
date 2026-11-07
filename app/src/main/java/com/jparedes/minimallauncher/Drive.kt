@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,18 +69,24 @@ import java.time.format.DateTimeFormatter
 data class DriveContact(val name: String, val number: String)
 
 /**
- * Driving mode on/off. Turned on by connecting to the chosen car Bluetooth (CarReceiver), a gesture, or settings;
- * turned off by disconnecting or "exit". Persisted so it survives the launcher process being restarted.
+ * Driving mode on/off. Turned on by a gesture, settings, or answering "yes" when the chosen car Bluetooth connects
+ * (CarReceiver sets [ask]); turned off by disconnecting or "exit". Persisted so it survives the launcher process being restarted.
  */
 internal object Drive {
     var active by mutableStateOf(false)
     var permTick by mutableIntStateOf(0) // bumped when Bluetooth permission changes, so settings re-read devices
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE)
-    fun load(ctx: Context) { active = prefs(ctx).getBoolean("driveActive", false) }
+    var ask by mutableStateOf(false) // car connected: the home view asks whether to turn driving mode on
+    fun load(ctx: Context) { prefs(ctx).run { active = getBoolean("driveActive", false); ask = getBoolean("driveAsk", false) } }
     fun set(ctx: Context, on: Boolean) {
         active = on
-        prefs(ctx).edit().putBoolean("driveActive", on).apply()
+        ask = false
+        prefs(ctx).edit().putBoolean("driveActive", on).putBoolean("driveAsk", false).apply()
+    }
+    fun setAsk(ctx: Context, on: Boolean) {
+        ask = on
+        prefs(ctx).edit().putBoolean("driveAsk", on).apply()
     }
 
     private val WHATSAPP = listOf("com.whatsapp", "com.whatsapp.w4b")
@@ -107,6 +114,22 @@ internal object Drive {
     }
 }
 
+/** Home-view card when the car connects: "driving mode?  yes · no". */
+@Composable
+internal fun DriveAsk(onYes: () -> Unit, onNo: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Fg.copy(alpha = 0.06f))
+            .border(1.dp, Dim.copy(alpha = 0.25f), RoundedCornerShape(22.dp)).padding(18.dp),
+    ) {
+        BasicText(stringResource(R.string.drive_ask_car), style = SmallText.copy(fontSize = 13.sp))
+        BasicText(stringResource(R.string.drive_ask), Modifier.padding(top = 6.dp), style = RowText.copy(fontSize = 22.sp))
+        Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            BigButton(stringResource(R.string.drive_yes), onClick = onYes)
+            BigButton(stringResource(R.string.drive_no), dim = true, onClick = onNo)
+        }
+    }
+}
+
 /** The three quick messages: the user's own, or the defaults in the phone's language. */
 @Composable
 internal fun quickMessages(): List<String> = Look.quickMsgs.ifEmpty {
@@ -125,7 +148,7 @@ class CarReceiver : BroadcastReceiver() {
         else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
         if (device?.address != car) return
         when (intent.action) {
-            BluetoothDevice.ACTION_ACL_CONNECTED -> Drive.set(ctx, true)
+            BluetoothDevice.ACTION_ACL_CONNECTED -> { Drive.load(ctx); if (!Drive.active) Drive.setAsk(ctx, true) }
             BluetoothDevice.ACTION_ACL_DISCONNECTED -> Drive.set(ctx, false)
         }
     }

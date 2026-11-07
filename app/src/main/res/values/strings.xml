@@ -190,4 +190,8 @@
     <string name="near_gas">gas station</string>
     <string name="near_coffee">coffee</string>
     <string name="near_parking">parking</string>
+    <string name="drive_ask_car">car connected</string>
+    <string name="drive_ask">driving mode?</string>
+    <string name="drive_yes">yes</string>
+    <string name="drive_no">no</string>
 </resources>
