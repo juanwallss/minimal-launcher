@@ -41,6 +41,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -219,11 +222,17 @@ fun DriveScreen(
         }
     }
     val outer = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 28.dp, vertical = 20.dp)
-    if (!wide) Column(outer, verticalArrangement = Arrangement.spacedBy(28.dp)) {
-        header()
-        NotificationDots.nav.value?.let { NavCard(it) }
-        DriveMusic(Modifier.weight(1f))
-        Column(verticalArrangement = Arrangement.spacedBy(28.dp)) { navAndCalls() }
+    // portrait: the player keeps its full size (squeezed into the leftover space its buttons shrank to nothing);
+    // when everything doesn't fit, the screen scrolls instead
+    if (!wide) BoxWithConstraints(outer) {
+        Column(Modifier.verticalScroll(rememberScrollState()).heightIn(min = maxHeight), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
+                header()
+                NotificationDots.nav.value?.let { NavCard(it) }
+            }
+            DriveMusic(Modifier.padding(vertical = 28.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(28.dp)) { navAndCalls() }
+        }
     } else Row(outer, horizontalArrangement = Arrangement.spacedBy(32.dp)) {
         // landscape (phone on a car mount): player on the left, destinations and calls on the right
         Column(Modifier.weight(1f).fillMaxHeight()) {
