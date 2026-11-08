@@ -12,6 +12,18 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.offset
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
+import android.os.SystemClock
+import kotlin.math.roundToInt
 import androidx.compose.foundation.Canvas
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -429,7 +441,11 @@ private fun QuickMessages(to: DriveContact) {
     }
 }
 
-/** Big player: title, artist and three large round controls. */
+/**
+ * Big player: cover, title, artist · app, progress and three large round controls.
+ * Swipe the title sideways = next / previous song; long-press play/pause = forward 30 s.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DriveMusic(modifier: Modifier) {
     val media = rememberMediaNow()
@@ -470,10 +486,26 @@ private fun DriveMusic(modifier: Modifier) {
         // cover · title / artist · app — tap opens the player app
         val ctx = LocalContext.current
         val app = remember(c.packageName) { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(c.packageName, 0)).toString().lowercase() } }.getOrNull() }
+        val haptic = LocalHapticFeedback.current
+        val scope = rememberCoroutineScope()
+        val drag = remember { Animatable(0f) } // the title follows the finger, then springs back
         Row(
-            Modifier.clickable(interactionSource = null, indication = null) {
-                ctx.packageManager.getLaunchIntentForPackage(c.packageName)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
-            },
+            Modifier.offset { IntOffset(drag.value.roundToInt(), 0) }
+                .pointerInput(c) {
+                    val skipAt = 64.dp.toPx()
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val dx = drag.value
+                            if (dx <= -skipAt) c.transportControls.skipToNext() else if (dx >= skipAt) c.transportControls.skipToPrevious()
+                            if (kotlin.math.abs(dx) >= skipAt) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            scope.launch { drag.animateTo(0f, spring()) }
+                        },
+                        onDragCancel = { scope.launch { drag.animateTo(0f, spring()) } },
+                    ) { change, dx -> change.consume(); scope.launch { drag.snapTo((drag.value + dx * 0.6f).coerceIn(-200f * density, 200f * density)) } }
+                }
+                .clickable(interactionSource = null, indication = null) {
+                    ctx.packageManager.getLaunchIntentForPackage(c.packageName)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+                },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val art = remember(meta) {
@@ -498,7 +530,15 @@ private fun DriveMusic(modifier: Modifier) {
                 PlayerIcon("prev", Fg, Modifier.size(44.dp))
             }
             Box(
-                Modifier.size(112.dp).clip(CircleShape).border(1.5.dp, Fg, CircleShape).clickable { if (playing) controls.pause() else controls.play() },
+                Modifier.size(112.dp).clip(CircleShape).border(1.5.dp, Fg, CircleShape).combinedClickable(
+                    onLongClick = {
+                        state?.let { st ->
+                            val pos = if (playing) st.position + ((SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong() else st.position
+                            controls.seekTo(pos + 30_000)
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                    },
+                ) { if (playing) controls.pause() else controls.play() },
                 contentAlignment = Alignment.Center,
             ) { PlayerIcon(if (playing) "pause" else "play", Fg, Modifier.size(52.dp)) }
             Box(Modifier.size(84.dp).clip(CircleShape).clickable { controls.skipToNext() }, contentAlignment = Alignment.Center) {
