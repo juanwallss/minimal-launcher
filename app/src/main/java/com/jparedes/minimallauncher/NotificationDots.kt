@@ -42,9 +42,16 @@ class NotificationDots : NotificationListenerService() {
         val ranking = currentRanking
         messages.value = active.mapNotNull { sbn -> toMessage(sbn, ranking) }.sortedByDescending { it.time }
         // every dismissable notification (driving mode's big notifications page): chats keep their reply action
-        notes.value = active.filter { it.isClearable && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 && it.packageName != packageName }
+        notes.value = active.filter { it.isClearable && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 && it.packageName != packageName && !isMedia(it) }
             .mapNotNull { sbn -> toMessage(sbn, ranking) ?: toNote(sbn) }.sortedByDescending { it.time }
         nav.value = active.firstOrNull { it.packageName in NAV_APPS && it.isOngoing }?.let(::toNav)
+    }
+
+    /** Players (and Samsung's "MediaOngoingActivity" copy of them): driving mode already shows the big player. */
+    private fun isMedia(sbn: StatusBarNotification): Boolean {
+        val n = sbn.notification
+        return n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION) || n.category == Notification.CATEGORY_TRANSPORT ||
+            n.extras.getString(Notification.EXTRA_TEMPLATE)?.contains("MediaStyle") == true || n.channelId == "MediaOngoingActivity"
     }
 
     private fun toNav(sbn: StatusBarNotification): Nav {
