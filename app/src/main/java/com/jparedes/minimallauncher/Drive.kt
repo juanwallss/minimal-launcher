@@ -357,16 +357,27 @@ private fun DriveNotes() {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         notes.take(8).forEach { m ->
             val app = remember(m.pkg) { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(m.pkg, 0)).toString().lowercase() } }.getOrDefault("") }
+            val icon = remember(m.pkg) {
+                runCatching {
+                    val d = ctx.packageManager.getApplicationIcon(m.pkg)
+                    val px = (32 * ctx.resources.displayMetrics.density).toInt()
+                    android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+                        .also { d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(it)) }.asImageBitmap()
+                }.getOrNull()
+            }
             val ago = (System.currentTimeMillis() - m.time) / 60_000
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Fg.copy(alpha = 0.06f))
                     .clickable { NotificationDots.send(ctx, m.open) }.padding(start = 20.dp, top = 16.dp, bottom = 18.dp),
             ) {
                 Column(Modifier.weight(1f)) {
-                    BasicText(
-                        "$app  ·  " + if (ago < 1) stringResource(R.string.msg_now) else stringResource(R.string.msg_min, ago.toInt()),
-                        style = SmallText.copy(fontSize = 15.sp), maxLines = 1,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        icon?.let { Image(it, null, Modifier.padding(end = 8.dp).size(16.dp), colorFilter = Grayscale, alpha = 0.8f) }
+                        BasicText(
+                            "$app  ·  " + if (ago < 1) stringResource(R.string.msg_now) else stringResource(R.string.msg_min, ago.toInt()),
+                            style = SmallText.copy(fontSize = 15.sp), maxLines = 1,
+                        )
+                    }
                     if (m.title.isNotBlank()) BasicText(m.title, Modifier.padding(top = 6.dp), style = RowText.copy(fontSize = 26.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (m.text.isNotBlank()) BasicText(
                         m.text, Modifier.padding(top = 4.dp), style = RowText.copy(fontSize = 21.sp, color = Fg.copy(alpha = 0.8f)),
