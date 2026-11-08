@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -437,7 +438,9 @@ private fun DriveMusic(modifier: Modifier) {
     val state = remember(media.tick, c) { c?.playbackState }
     val playing = state?.state == PlaybackState.STATE_PLAYING
     val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.Center) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+    val tight = maxHeight < 330.dp // landscape with the nav card: no room for the cover
+    Column(Modifier.fillMaxWidth().then(if (constraints.hasBoundedHeight) Modifier.fillMaxHeight() else Modifier), verticalArrangement = Arrangement.Center) {
         if (c == null || title == null) {
             BasicText(stringResource(R.string.music_nothing), style = RowText.copy(fontSize = 22.sp, color = Dim))
             // installed music players (apps that declare themselves as the music app category), last used first
@@ -464,12 +467,31 @@ private fun DriveMusic(modifier: Modifier) {
             }
             return@Column
         }
-        BasicText(title.lowercase(), Modifier.basicMarquee(), style = RowText.copy(fontSize = 30.sp), maxLines = 1)
-        val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
-        if (artist != null) BasicText(artist.lowercase(), Modifier.padding(top = 4.dp), style = SmallText.copy(fontSize = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // cover · title / artist · app — tap opens the player app
+        val ctx = LocalContext.current
+        val app = remember(c.packageName) { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(c.packageName, 0)).toString().lowercase() } }.getOrNull() }
+        Row(
+            Modifier.clickable(interactionSource = null, indication = null) {
+                ctx.packageManager.getLaunchIntentForPackage(c.packageName)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+            },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val art = remember(meta) {
+                (meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                    ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))?.asImageBitmap()
+            }
+            if (art != null && !tight) Image(art, null, Modifier.padding(end = 20.dp).size(92.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop, colorFilter = Grayscale)
+            Column(Modifier.weight(1f)) {
+                BasicText(title.lowercase(), Modifier.basicMarquee(), style = RowText.copy(fontSize = 30.sp), maxLines = 1)
+                val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+                val sub = listOfNotNull(artist?.lowercase(), app).joinToString("  ·  ")
+                if (sub.isNotEmpty()) BasicText(sub, Modifier.padding(top = 4.dp), style = SmallText.copy(fontSize = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        MediaProgress(c, meta, state, playing, media.tick, Modifier.padding(top = 20.dp), big = true)
         val controls = c.transportControls
         Row(
-            Modifier.fillMaxWidth().padding(top = 28.dp),
+            Modifier.fillMaxWidth().padding(top = 16.dp),
             horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(84.dp).clip(CircleShape).clickable { controls.skipToPrevious() }, contentAlignment = Alignment.Center) {
@@ -483,5 +505,6 @@ private fun DriveMusic(modifier: Modifier) {
                 PlayerIcon("next", Fg, Modifier.size(44.dp))
             }
         }
+    }
     }
 }

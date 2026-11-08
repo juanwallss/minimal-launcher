@@ -247,10 +247,6 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
     fun appLabel(pkg: String) = runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(pkg, 0)).toString().lowercase() } }.getOrNull()
     fun openApp(pkg: String) { ctx.packageManager.getLaunchIntentForPackage(pkg)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } }
 
-    // Position ticks once a second while playing (PlaybackState only reports the last known position)
-    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(playing, tick) { while (playing) { now = SystemClock.elapsedRealtime(); delay(1000) } }
-
     Column(Modifier.fillMaxSize()) {
         when {
             denied -> { Header(stringResource(R.string.widget_music)); Hint(stringResource(R.string.music_access), onNeedAccess) }
@@ -280,36 +276,7 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
                     }
                 }
 
-                // progress: tap or drag the bar to seek (only if the player allows seeking)
-                val duration = meta.getLong(MediaMetadata.METADATA_KEY_DURATION)
-                if (duration > 0 && state != null) {
-                    val position = if (playing) state.position + ((now - state.lastPositionUpdateTime) * state.playbackSpeed).toLong() else state.position
-                    var dragFraction by remember { mutableStateOf<Float?>(null) }
-                    val fraction = dragFraction ?: (position.toFloat() / duration).coerceIn(0f, 1f)
-                    val canSeek = state.actions and PlaybackState.ACTION_SEEK_TO != 0L
-                    val fg = Fg; val dim = Dim
-                    Canvas(
-                        Modifier.fillMaxWidth().padding(top = 16.dp).height(18.dp)
-                            .then(if (!canSeek) Modifier else Modifier.pointerInput(duration) {
-                                detectTapGestures { c.transportControls.seekTo((it.x / size.width * duration).toLong()) }
-                            }.pointerInput(duration) {
-                                detectHorizontalDragGestures(
-                                    onDragEnd = { dragFraction?.let { c.transportControls.seekTo((it * duration).toLong()) }; dragFraction = null },
-                                    onDragCancel = { dragFraction = null },
-                                ) { change, _ -> change.consume(); dragFraction = (change.position.x / size.width).coerceIn(0f, 1f) }
-                            })
-                    ) {
-                        val y = size.height / 2
-                        drawLine(dim, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                        drawLine(fg, Offset(0f, y), Offset(size.width * fraction, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-                        drawCircle(fg, radius = (if (dragFraction != null) 7 else 4).dp.toPx(), center = Offset(size.width * fraction, y))
-                    }
-                    Row(Modifier.fillMaxWidth()) {
-                        BasicText(fmt((fraction * duration).toLong()), style = SmallText.copy(fontSize = 12.sp))
-                        Spacer(Modifier.weight(1f))
-                        BasicText(fmt(duration), style = SmallText.copy(fontSize = 12.sp))
-                    }
-                }
+                MediaProgress(c, meta, state, playing, tick, Modifier.padding(top = 16.dp))
 
                 // previous · play/pause · next — big round targets
                 val controls = c.transportControls
@@ -322,6 +289,47 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
                     PlayerIcon("next", Fg, Modifier.size(44.dp).clip(CircleShape).tap { controls.skipToNext() }.padding(10.dp))
                 }
             }
+        }
+    }
+}
+
+/** Seekable progress line with elapsed / total times; nothing when the player reports no duration. [big] = driving mode sizes. */
+@Composable
+internal fun MediaProgress(c: MediaController, meta: MediaMetadata, state: PlaybackState?, playing: Boolean, tick: Int, modifier: Modifier = Modifier, big: Boolean = false) {
+    val duration = meta.getLong(MediaMetadata.METADATA_KEY_DURATION)
+    if (duration <= 0 || state == null) return
+    // position ticks once a second while playing (PlaybackState only reports the last known position)
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(playing, tick) { while (playing) { now = SystemClock.elapsedRealtime(); delay(1000) } }
+    val position = if (playing) state.position + ((now - state.lastPositionUpdateTime) * state.playbackSpeed).toLong() else state.position
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    val fraction = dragFraction ?: (position.toFloat() / duration).coerceIn(0f, 1f)
+    val canSeek = state.actions and PlaybackState.ACTION_SEEK_TO != 0L
+    val fg = Fg; val dim = Dim
+    val line = if (big) 3.dp else 2.dp
+    Column(modifier) {
+        Canvas(
+            Modifier.fillMaxWidth().height(if (big) 32.dp else 18.dp)
+                .then(if (!canSeek) Modifier else Modifier.pointerInput(duration) {
+                    detectTapGestures { c.transportControls.seekTo((it.x / size.width * duration).toLong()) }
+                }.pointerInput(duration) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = { dragFraction?.let { c.transportControls.seekTo((it * duration).toLong()) }; dragFraction = null },
+                        onDragCancel = { dragFraction = null },
+                    ) { change, _ -> change.consume(); dragFraction = (change.position.x / size.width).coerceIn(0f, 1f) }
+                })
+        ) {
+            val y = size.height / 2
+            drawLine(dim, Offset(0f, y), Offset(size.width, y), strokeWidth = line.toPx(), cap = StrokeCap.Round)
+            drawLine(fg, Offset(0f, y), Offset(size.width * fraction, y), strokeWidth = line.toPx(), cap = StrokeCap.Round)
+            val dot = if (dragFraction != null) (if (big) 11 else 7) else (if (big) 7 else 4)
+            drawCircle(fg, radius = dot.dp.toPx(), center = Offset(size.width * fraction, y))
+        }
+        val t = SmallText.copy(fontSize = if (big) 16.sp else 12.sp)
+        Row(Modifier.fillMaxWidth()) {
+            BasicText(fmt((fraction * duration).toLong()), style = t)
+            Spacer(Modifier.weight(1f))
+            BasicText(fmt(duration), style = t)
         }
     }
 }
