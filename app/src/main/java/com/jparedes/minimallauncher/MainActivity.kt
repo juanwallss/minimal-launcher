@@ -200,6 +200,13 @@ internal val Bg @Composable get(): Color {
     val base = if (isSystemInDarkTheme()) Color(0xFF0A0A0A) else Color(0xFFF4F2EE)
     return if (Look.theme == Look.THEME_NONE) base else androidx.compose.ui.graphics.lerp(base, Accent, 0.06f) // faint tint of the theme
 }
+/** Gradient background (settings → background → gradient): two hues, deep by night, pastel by day, corner to corner. */
+@Composable
+internal fun gradientBrush(from: Int = Look.gradFrom, to: Int = Look.gradTo): androidx.compose.ui.graphics.Brush {
+    val dark = isSystemInDarkTheme()
+    fun c(h: Int) = Color.hsv(h.toFloat(), if (dark) 0.6f else 0.22f, if (dark) 0.3f else 0.96f)
+    return androidx.compose.ui.graphics.Brush.linearGradient(listOf(c(from), c(to)))
+}
 /** Theme accent (settings → appearance → theme): clock, chosen letter, bubble, underlines. Plain [Fg] when no theme. */
 internal val Accent @Composable get(): Color {
     val dark = isSystemInDarkTheme()
@@ -208,6 +215,7 @@ internal val Accent @Composable get(): Color {
         Look.THEME_NONE -> null
         // wallpaper: the launcher's own photo, else the phone's wallpaper (Material You palette on Android 12+)
         Look.THEME_WALL -> Look.photoAccent?.takeIf { Look.background == Look.BG_PHOTO }
+            ?: if (Look.background == Look.BG_GRADIENT) android.graphics.Color.HSVToColor(floatArrayOf(Look.gradFrom.toFloat(), 0.5f, 0.9f)) else null
             ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) ctx.getColor(android.R.color.system_accent1_200)
             else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) android.app.WallpaperManager.getInstance(ctx).getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM)?.primaryColor?.toArgb()
             else null
@@ -625,11 +633,15 @@ class MainActivity : ComponentActivity() {
             // ★ (favorites) heads the bar when there are any
             val barLetters = (if (favorites.isNotEmpty()) listOf(STAR) else emptyList()) + visible.map { it.letter }.distinct()
             // Layers: theme color, or photo / system wallpaper with a theme-colored veil so text stays readable
-            Box(Modifier.fillMaxSize().then(if (Look.background == Look.BG_NONE) Modifier.background(Bg) else Modifier)) {
+            Box(Modifier.fillMaxSize().then(when (Look.background) {
+                Look.BG_NONE -> Modifier.background(Bg)
+                Look.BG_GRADIENT -> Modifier.background(gradientBrush())
+                else -> Modifier
+            })) {
             if (Look.background == Look.BG_PHOTO) bgImage?.let {
                 Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = if (Look.gray) Grayscale else null)
             }
-            if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(Bg.copy(alpha = Look.dim / 100f)))
+            if (Look.veiled) Box(Modifier.fillMaxSize().background(Bg.copy(alpha = Look.dim / 100f)))
             if (!Look.onboarded) Onboarding(
                 resumeTick = resumes,
                 onRequest = { askAny.launch(it) },

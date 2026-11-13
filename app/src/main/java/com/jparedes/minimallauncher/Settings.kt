@@ -54,6 +54,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -87,12 +88,18 @@ internal object Look {
     const val BG_NONE = "none"
     const val BG_SYSTEM = "system"
     const val BG_PHOTO = "photo"
+    const val BG_GRADIENT = "gradient"
+    /** System wallpaper and photo get the dim veil; none and gradient are already readable. */
+    val veiled get() = background == BG_SYSTEM || background == BG_PHOTO
 
     var background by mutableStateOf(BG_NONE)
     const val DIM_MIN = 80                 // below this the photo fights with the text
     const val DIM_MAX = 98
     var dim by mutableIntStateOf(85)       // % of the theme color laid over the background
     var gray by mutableStateOf(true)       // photo in black & white
+    var gradFrom by mutableIntStateOf(260) // gradient background: hue at the top-left…
+    var gradTo by mutableIntStateOf(20)    // …and at the bottom-right
+    val GRADIENTS = linkedMapOf("dusk" to (260 to 20), "ocean" to (215 to 175), "forest" to (150 to 90), "ember" to (0 to 40), "aurora" to (170 to 290))
     var clockSize by mutableIntStateOf(1)  // 0 small · 1 medium · 2 large
     var clockStyle by mutableIntStateOf(0) // ClockStyle ordinal
     var textSize by mutableIntStateOf(1)
@@ -144,6 +151,8 @@ internal object Look {
         background = p.getString("bg", BG_NONE)!!
         dim = p.getInt("bgDim", 85).coerceIn(DIM_MIN, DIM_MAX)
         gray = p.getBoolean("bgGray", true)
+        gradFrom = p.getInt("gradFrom", 260)
+        gradTo = p.getInt("gradTo", 20)
         clockSize = p.getInt("clockSize", 1)
         clockStyle = p.getInt("clockStyle", 0)
         textSize = p.getInt("textSize", 1)
@@ -179,7 +188,7 @@ internal object Look {
     /** Back to defaults: appearance, home, gestures, driving messages. Keeps favorites, hidden apps, widgets and the car/contacts/addresses. */
     fun reset(ctx: Context) {
         val e = prefs?.edit() ?: return
-        (listOf("bg", "bgDim", "bgGray", "clockSize", "clockStyle", "textSize", "clock24", "barBottom", "barLeft", "barHaptics", "font",
+        (listOf("bg", "bgDim", "bgGray", "gradFrom", "gradTo", "clockSize", "clockStyle", "textSize", "clock24", "barBottom", "barLeft", "barHaptics", "font",
             "info", "infoOff", "theme", "showRecents", "showMessages", "showWidgets", "quickMsgs", "driveReplies") + GESTURE_DEFAULTS.keys.map { "g_$it" })
             .forEach { e.remove(it) }
         e.commit()
@@ -188,7 +197,7 @@ internal object Look {
 
     fun save() {
         val e = prefs?.edit() ?: return
-        e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray)
+        e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray).putInt("gradFrom", gradFrom).putInt("gradTo", gradTo)
             .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putBoolean("onboarded", onboarded).putString("infoOff", (INFO_ALL - info).joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
             .putString("carAddress", carAddress).putString("carName", carName)
             .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
@@ -347,10 +356,10 @@ private fun actionLabel(action: String, apps: List<App>): String =
 @Composable
 private fun Categories(apps: List<App>, resumeTick: Int, open: (SettingsPage) -> Unit) {
     val sizes = listOf(R.string.s_small, R.string.s_medium, R.string.s_large).map { stringResource(it) }
-    val bg = stringResource(when (Look.background) { Look.BG_PHOTO -> R.string.s_bg_photo_short; Look.BG_SYSTEM -> R.string.s_bg_system; else -> R.string.s_bg_none })
+    val bg = stringResource(when (Look.background) { Look.BG_PHOTO -> R.string.s_bg_photo_short; Look.BG_SYSTEM -> R.string.s_bg_system; Look.BG_GRADIENT -> R.string.s_bg_gradient; else -> R.string.s_bg_none })
     val perms = permissionStates(resumeTick)
     val rows = listOf(
-        SettingsPage.APPEARANCE to listOfNotNull(stringResource(ClockStyle.entries.getOrElse(Look.clockStyle) { ClockStyle.THIN }.label), bg, if (Look.background != Look.BG_NONE) "${Look.dim} %" else null,
+        SettingsPage.APPEARANCE to listOfNotNull(stringResource(ClockStyle.entries.getOrElse(Look.clockStyle) { ClockStyle.THIN }.label), bg, if (Look.veiled) "${Look.dim} %" else null,
             stringResource(R.string.s_clock) + " " + sizes[Look.clockSize], if (Look.clock24) "24 h" else "12 h").joinToString("  ·  "),
         SettingsPage.HOME to listOf(
             stringResource(R.string.s_bar) + " " + stringResource(if (Look.barBottom) R.string.s_bar_bottom else if (Look.barLeft) R.string.s_bar_left else R.string.s_bar_side),
@@ -392,8 +401,23 @@ private fun AppearancePage(set: (() -> Unit) -> Unit, onPickPhoto: () -> Unit, o
         Choice(stringResource(R.string.s_bg_system), Look.background == Look.BG_SYSTEM) { set { Look.background = Look.BG_SYSTEM }; onBackgroundChanged() }
         // tapping "photo…" always opens the picker, so it doubles as "change photo"
         Choice(stringResource(R.string.s_bg_photo), Look.background == Look.BG_PHOTO, onClick = onPickPhoto)
+        Choice(stringResource(R.string.s_bg_gradient), Look.background == Look.BG_GRADIENT) { set { Look.background = Look.BG_GRADIENT }; onBackgroundChanged() }
     }
-    if (Look.background != Look.BG_NONE) Column(Modifier.padding(top = 30.dp)) {
+    if (Look.background == Look.BG_GRADIENT) {
+        Section(stringResource(R.string.s_gradient)) {
+            val names = mapOf("dusk" to R.string.gr_dusk, "ocean" to R.string.gr_ocean, "forest" to R.string.gr_forest, "ember" to R.string.gr_ember, "aurora" to R.string.gr_aurora)
+            Look.GRADIENTS.forEach { (key, hues) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.padding(end = 8.dp).size(9.dp).background(gradientBrush(hues.first, hues.second), CircleShape))
+                    Choice(stringResource(names.getValue(key)), Look.gradFrom to Look.gradTo == hues) { set { Look.gradFrom = hues.first; Look.gradTo = hues.second } }
+                }
+            }
+        }
+        // custom: drag either end's hue
+        HueSlider(Look.gradFrom) { Look.gradFrom = it }
+        HueSlider(Look.gradTo) { Look.gradTo = it }
+    }
+    if (Look.veiled) Column(Modifier.padding(top = 30.dp)) {
         SectionLabel(stringResource(R.string.s_dim))
         DimSlider()
     }
@@ -435,17 +459,19 @@ private fun AppearancePage(set: (() -> Unit) -> Unit, onPickPhoto: () -> Unit, o
 private fun Preview(background: ImageBitmap?) {
     val shape = RoundedCornerShape(22.dp)
     val bg = Bg
+    val gradient = gradientBrush()
     Box(
         Modifier.padding(top = 12.dp).fillMaxWidth().height(170.dp).clip(shape).border(0.5.dp, Dim.copy(alpha = 0.5f), shape)
             .drawBehind {
                 if (Look.background == Look.BG_SYSTEM) drawRect(Color.Black, blendMode = BlendMode.Clear) // window hole → wallpaper
                 else if (Look.background == Look.BG_NONE) drawRect(bg)
+                else if (Look.background == Look.BG_GRADIENT) drawRect(gradient)
             },
     ) {
         if (Look.background == Look.BG_PHOTO && background != null) {
             Image(background, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = if (Look.gray) Grayscale else null)
         }
-        if (Look.background != Look.BG_NONE) Box(Modifier.fillMaxSize().background(bg.copy(alpha = Look.dim / 100f)))
+        if (Look.veiled) Box(Modifier.fillMaxSize().background(bg.copy(alpha = Look.dim / 100f)))
         val now = remember { java.time.LocalDateTime.now() }
         Column(Modifier.align(Alignment.CenterStart).padding(start = 24.dp)) {
             val style = ClockStyle.entries.getOrElse(Look.clockStyle) { ClockStyle.THIN }
@@ -604,6 +630,30 @@ private fun DimSlider() {
             drawCircle(fg, radius = 8.dp.toPx(), center = Offset(x, y))
         }
         BasicText("${Look.dim} %", Modifier.padding(start = 18.dp).width(56.dp), style = RowText.copy(fontSize = 19.sp))
+    }
+}
+
+/** Hue picker for one end of the gradient: a thin rainbow line, the knob filled with the chosen color. */
+@Composable
+private fun HueSlider(hue: Int, onChange: (Int) -> Unit) {
+    val fg = Fg
+    val rainbow = Brush.horizontalGradient((0..360 step 60).map { Color.hsv(it.toFloat(), 0.5f, 0.85f) })
+    fun valueAt(x: Float, width: Int) = (x / width * 359).roundToInt().coerceIn(0, 359)
+    Canvas(
+        Modifier.fillMaxWidth().padding(top = 6.dp).height(36.dp)
+            .pointerInput(Unit) { detectTapGestures { onChange(valueAt(it.x, size.width)); Look.save() } }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(onDragEnd = { Look.save() }, onDragCancel = { Look.save() }) { change, _ ->
+                    change.consume()
+                    onChange(valueAt(change.position.x, size.width))
+                }
+            }
+    ) {
+        val y = size.height / 2
+        val x = size.width * hue / 359f
+        drawLine(rainbow, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+        drawCircle(Color.hsv(hue.toFloat(), 0.5f, 0.85f), radius = 8.dp.toPx(), center = Offset(x, y))
+        drawCircle(fg, radius = 8.dp.toPx(), center = Offset(x, y), style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
     }
 }
 

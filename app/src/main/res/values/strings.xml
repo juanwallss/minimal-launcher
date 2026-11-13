@@ -50,6 +50,13 @@
     <string name="s_bg_none">none</string>
     <string name="s_bg_system">wallpaper</string>
     <string name="s_bg_photo">photo…</string>
+    <string name="s_bg_gradient">gradient</string>
+    <string name="s_gradient">gradient</string>
+    <string name="gr_dusk">dusk</string>
+    <string name="gr_ocean">ocean</string>
+    <string name="gr_forest">forest</string>
+    <string name="gr_ember">ember</string>
+    <string name="gr_aurora">aurora</string>
     <string name="s_dim">dim</string>
     <string name="s_gray">black &amp; white</string>
     <string name="s_on">on</string>
