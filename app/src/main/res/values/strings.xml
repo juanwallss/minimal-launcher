@@ -214,4 +214,18 @@
     <string name="st_horizon">horizon</string>
     <string name="s_reset">reset to defaults</string>
     <string name="s_reset_confirm">tap again to reset</string>
+    <string name="d_speed">Speed</string>
+    <string name="d_arrival">Arrival</string>
+    <string name="d_phone">Phone</string>
+    <string name="d_messages">Messages</string>
+    <string name="d_music">Music</string>
+    <string name="d_map">Map</string>
+    <string name="d_exit">Exit</string>
+    <string name="d_no_route">No route</string>
+    <string name="d_open_map">Open map</string>
+    <string name="d_speed_ask">Tap to show speed</string>
+    <string name="d_nothing">Nothing playing</string>
+    <string name="d_dial">Dial</string>
+    <string name="d_quick">WhatsApp to %1$s</string>
+    <string name="d_no_notes">No notifications</string>
 </resources>

@@ -214,4 +214,18 @@
     <string name="st_horizon">horizonte</string>
     <string name="s_reset">restablecer ajustes</string>
     <string name="s_reset_confirm">toca otra vez para restablecer</string>
+    <string name="d_speed">Velocidad</string>
+    <string name="d_arrival">Llegada</string>
+    <string name="d_phone">Teléfono</string>
+    <string name="d_messages">Mensajes</string>
+    <string name="d_music">Música</string>
+    <string name="d_map">Mapa</string>
+    <string name="d_exit">Salir</string>
+    <string name="d_no_route">Sin ruta</string>
+    <string name="d_open_map">Abrir mapa</string>
+    <string name="d_speed_ask">Toca para ver la velocidad</string>
+    <string name="d_nothing">Nada sonando</string>
+    <string name="d_dial">Marcar</string>
+    <string name="d_quick">WhatsApp a %1$s</string>
+    <string name="d_no_notes">Sin notificaciones</string>
 </resources>

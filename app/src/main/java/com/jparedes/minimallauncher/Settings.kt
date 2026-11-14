@@ -668,7 +668,7 @@ fun Context.hasUsageAccess(): Boolean {
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
-/** Car (auto start), home / work addresses, favorite contacts, and a manual "start now". */
+/** Car (auto start), favorite contacts, and a manual "start now". */
 @SuppressLint("MissingPermission") // bonded devices are only read after BLUETOOTH_CONNECT is granted
 @Composable
 private fun DriveSettings(set: (() -> Unit) -> Unit, onAskBluetooth: () -> Unit, onPickContact: () -> Unit, onClose: () -> Unit) {
@@ -689,8 +689,6 @@ private fun DriveSettings(set: (() -> Unit) -> Unit, onAskBluetooth: () -> Unit,
             }
         }
     }
-    AddressField(stringResource(R.string.s_home_addr), Look.homeAddress) { v -> set { Look.homeAddress = v } }
-    AddressField(stringResource(R.string.s_work_addr), Look.workAddress) { v -> set { Look.workAddress = v } }
     Section(stringResource(R.string.s_contacts)) {
         Look.driveContacts.forEach { c -> Choice("${c.name.lowercase()}  ×", true) { set { Look.driveContacts = Look.driveContacts - c } } }
         if (Look.driveContacts.size < 4) Choice(stringResource(R.string.s_add_contact), false, onClick = onPickContact)

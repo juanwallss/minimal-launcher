@@ -414,6 +414,7 @@ class MainActivity : ComponentActivity() {
 
     private var weather by mutableStateOf<Weather?>(null)
     private var weatherLoading by mutableStateOf(false)
+    private val askFine = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { resumes++ } // driving speed
     private val askLocation = registerForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) refreshWeather(force = true) }
 
     private fun savePages(list: List<String>) {
@@ -666,18 +667,15 @@ class MainActivity : ComponentActivity() {
                 resumeTick = resumes,
                 onClose = { settingsOpen = false },
             ) else if (Drive.active) DriveScreen(
-                homeAddress = Look.homeAddress,
-                workAddress = Look.workAddress,
                 contacts = Look.driveContacts,
                 quickTo = Look.driveContacts.firstOrNull { it.number == Look.quickTo },
-                onNavigate = ::navigate,
+                weather = weather?.let { w -> "${w.temp}°C" + (w.place?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "") },
+                speedAllowed = resumes >= 0 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+                onAskSpeed = { askFine.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
+                onOpenMap = { navigate(null) },
                 onCall = { call(it.number) },
                 onDial = { safeStart(Intent(Intent.ACTION_DIAL)) },
-                onSetup = { settingsOpen = true },
                 onExit = { Drive.set(this@MainActivity, false) },
-                favorites = favorites.mapNotNull { id -> apps.find { it.id == id } },
-                icon = ::iconOf,
-                onOpen = ::open,
             ) else {
             // Pieces shared by the portrait (one column) and landscape (two panes) layouts
             val listPane: @Composable (Modifier) -> Unit = { m ->

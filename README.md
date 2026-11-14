@@ -35,7 +35,7 @@ Para volver a tu launcher anterior: Ajustes → Aplicaciones → Aplicaciones pr
 - **Bajo la hora**, lo que elijas: fecha, clima, modo de sonido, wifi/datos, batería, próxima alarma, próximo evento, notificaciones.
 - **Responder mensajes desde el inicio** (WhatsApp, Telegram, SMS…) con respuestas sugeridas.
 - **Mini reproductor** cuando suena música.
-- **Recientes**, **apps ocultas**, fondo propio (foto en blanco y negro o el del sistema), widgets opcionales y **modo conducción**: reproductor grande, la próxima vuelta de Google Maps o Waze en pantalla, llamadas, búsqueda cerca de ti (gasolinera, café, estacionamiento) y mensajes rápidos de WhatsApp a un contacto.
+- **Recientes**, **apps ocultas**, fondo propio (foto en blanco y negro o el del sistema), widgets opcionales y **modo conducción** (oscuro, con su propio diseño): velocidad, hora de llegada y la próxima vuelta de Google Maps o Waze, reproductor, llamadas, notificaciones grandes con respuestas rápidas y mensajes rápidos de WhatsApp a un contacto.
 
 ## Cómo se usa
 
@@ -69,6 +69,7 @@ Cada uno activa una sola función; sin ellos el launcher funciona igual. Se pued
 | Datos de uso | La fila de apps recientes |
 | Calendario | Tu próximo evento bajo la hora |
 | Ubicación aproximada | El clima |
+| Ubicación precisa | La velocidad en el modo conducción |
 
 En Samsung, si un ajuste sale como restringido: Ajustes → Aplicaciones → Minimal → ⋮ → *Permitir ajustes restringidos*.
 

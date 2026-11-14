@@ -93,6 +93,13 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import android.annotation.SuppressLint
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Looper
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.ui.text.style.TextAlign
 
 /** A contact for one-tap calling in driving mode. */
 data class DriveContact(val name: String, val number: String)
@@ -189,431 +196,449 @@ class CarReceiver : BroadcastReceiver() {
     }
 }
 
-// Driving mode look: soft filled cards (no outlines), large radius, accent only where it matters (play, icons, nav).
+
+// Home-screen look for DriveAsk's buttons (the launcher's own style, not driving mode's)
 private val CardShape = RoundedCornerShape(26.dp)
 private val CardColor @Composable get() = Fg.copy(alpha = 0.07f)
 
-/** Big filled tile with an optional drawn icon (home · work · map · phone) or a contact's initial; easy to hit without looking. */
 @Composable
-private fun RowScope.BigButton(label: String, dim: Boolean = false, icon: String? = null, initial: Char? = null, onClick: () -> Unit) = Row(
-    Modifier.weight(1f).height(84.dp).clip(CardShape).background(CardColor)
-        .clickable(onClick = onClick).padding(horizontal = 16.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = if (icon == null && initial == null) Arrangement.Center else Arrangement.Start,
-) {
-    val tint = if (dim) Dim else Accent
-    if (icon != null) DriveIcon(icon, tint, Modifier.padding(end = 12.dp).size(30.dp))
-    if (initial != null) Box(Modifier.padding(end = 12.dp).size(40.dp).background(tint.copy(alpha = 0.2f), CircleShape), contentAlignment = Alignment.Center) {
-        BasicText(initial.uppercase(), style = RowText.copy(fontSize = 18.sp, color = tint))
-    }
-    BasicText(label, style = RowText.copy(fontSize = 20.sp, color = if (dim) Dim else Fg), maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun RowScope.BigButton(label: String, dim: Boolean = false, onClick: () -> Unit) = Box(
+    Modifier.weight(1f).height(72.dp).clip(CardShape).background(CardColor).clickable(onClick = onClick),
+    contentAlignment = Alignment.Center,
+) { BasicText(label, style = RowText.copy(fontSize = 20.sp, color = if (dim) Dim else Fg), maxLines = 1) }
+
+// ---------------------------------------------------------------- driving screen
+// Its own look, always dark whatever the launcher theme: near-black, filled cards, cyan accent, bold type.
+
+private object D {
+    val bg = Color(0xFF0A0D12)
+    val card = Color(0xFF141922)
+    val panel = Color(0xFF10141B)
+    val cyan = Color(0xFF3DD6F5)
+    val text = Color(0xFFF2F4F7)
+    val dim = Color(0xFF8A94A3)
+    val track = Color(0xFF262D38)
+    val redBg = Color(0xFF3A1B1E)
+    val red = Color(0xFFFF7A7A)
+    val shape = RoundedCornerShape(28.dp)
 }
 
-/** Thin line icons for the driving tiles. */
+private fun dText(size: Int, color: Color = D.text, weight: FontWeight = FontWeight.Bold, spacing: Float = 0f) =
+    TextStyle(color = color, fontSize = size.sp, fontFamily = FontFamilies[0], fontWeight = weight, letterSpacing = spacing.sp)
+
+/** Small caps-like label over a value: "SPEED", "ARRIVAL". */
+@Composable
+private fun DLabel(text: String, modifier: Modifier = Modifier) =
+    BasicText(text.uppercase(), modifier, style = dText(15, D.dim, spacing = 2f), maxLines = 2)
+
+private enum class Panel { NAV, MESSAGES, PHONE }
+
+/**
+ * Driving screen. Portrait: clock · weather, the big center panel, speed + arrival, compact player, bottom bar.
+ * Landscape: speed + arrival on the left, the center panel, player + 2×2 buttons on the right.
+ * The center panel shows the next turn (from the maps app's notification); Phone and Messages swap it for calls
+ * or for the big notifications + quick WhatsApp messages, and tapping the active button again goes back.
+ */
+@Composable
+fun DriveScreen(
+    contacts: List<DriveContact>,
+    quickTo: DriveContact?,
+    weather: String?,              // "24°C · Tijuana"
+    speedAllowed: Boolean,         // precise location granted
+    onAskSpeed: () -> Unit,
+    onOpenMap: () -> Unit,
+    onCall: (DriveContact) -> Unit,
+    onDial: () -> Unit,
+    onExit: () -> Unit,
+) {
+    val now by produceState(LocalDateTime.now()) {
+        while (true) { value = LocalDateTime.now(); delay(1000L * (60 - value.second)) }
+    }
+    var panel by remember { mutableStateOf(Panel.NAV) }
+    fun toggle(p: Panel) { panel = if (panel == p) Panel.NAV else p }
+    val speed = rememberSpeed(speedAllowed)
+    val nav = NotificationDots.nav.value
+    val ctx = LocalContext.current
+    val openPlayer = {
+        val pm = ctx.packageManager
+        val pkg = ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE).getString("lastPlayer", null)
+        val launch = pkg?.let { pm.getLaunchIntentForPackage(it) }
+            ?: pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC), 0)
+                .firstNotNullOfOrNull { pm.getLaunchIntentForPackage(it.activityInfo.packageName) }
+        launch?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+        Unit
+    }
+    val header: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(now.format(DateTimeFormatter.ofPattern(Look.timePattern())).uppercase(), Modifier.weight(1f), style = dText(30))
+            weather?.let { BasicText(it, style = dText(18, D.dim, FontWeight.Normal), maxLines = 1) }
+        }
+    }
+    val center: @Composable (Modifier) -> Unit = { m ->
+        Box(m.clip(D.shape).background(D.panel)) {
+            when (panel) {
+                Panel.NAV -> NavPanel(nav, onOpenMap)
+                Panel.MESSAGES -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    quickTo?.let { QuickMessages(it) }
+                    DriveNotes()
+                }
+                Panel.PHONE -> PhonePanel(contacts, onCall, onDial)
+            }
+        }
+    }
+    val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp || screenWidthDp >= 600 }
+    val outer = Modifier.fillMaxSize().background(D.bg).windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 20.dp, vertical = 16.dp)
+    val gap = Arrangement.spacedBy(14.dp)
+    if (!wide) Column(outer, verticalArrangement = gap) {
+        header()
+        center(Modifier.weight(1f).fillMaxWidth())
+        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = gap) {
+            SpeedCard(speed, speedAllowed, onAskSpeed, wide = false, modifier = Modifier.weight(1.7f).fillMaxHeight())
+            ArrivalCard(nav, wide = false, modifier = Modifier.weight(1f).fillMaxHeight())
+        }
+        PlayerCard(compact = true, onOpenPlayer = openPlayer)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            DTile(stringResource(R.string.d_map), "nav", panel == Panel.NAV, Modifier.weight(1f)) { if (panel == Panel.NAV) onOpenMap() else panel = Panel.NAV }
+            DTile(stringResource(R.string.d_messages) + badge(), "chat", panel == Panel.MESSAGES, Modifier.weight(1f)) { toggle(Panel.MESSAGES) }
+            DTile(stringResource(R.string.d_phone), "phone", panel == Panel.PHONE, Modifier.weight(1f)) { toggle(Panel.PHONE) }
+            DTile(stringResource(R.string.d_exit), "x", false, Modifier.weight(1f), exit = true, onClick = onExit)
+        }
+    } else Row(outer, horizontalArrangement = gap) {
+        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = gap) {
+            header()
+            SpeedCard(speed, speedAllowed, onAskSpeed, wide = true, modifier = Modifier.weight(1f).fillMaxWidth())
+            ArrivalCard(nav, wide = true, modifier = Modifier.fillMaxWidth())
+        }
+        center(Modifier.weight(1.8f).fillMaxHeight())
+        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = gap) {
+            PlayerCard(compact = false, onOpenPlayer = openPlayer, modifier = Modifier.weight(1f))
+            Row(horizontalArrangement = gap) {
+                DTile(stringResource(R.string.d_phone), "phone", panel == Panel.PHONE, Modifier.weight(1f)) { toggle(Panel.PHONE) }
+                DTile(stringResource(R.string.d_messages) + badge(), "chat", panel == Panel.MESSAGES, Modifier.weight(1f)) { toggle(Panel.MESSAGES) }
+            }
+            Row(horizontalArrangement = gap) {
+                DTile(stringResource(R.string.d_music), "music", false, Modifier.weight(1f), onClick = openPlayer)
+                DTile(stringResource(R.string.d_exit), "x", false, Modifier.weight(1f), exit = true, onClick = onExit)
+            }
+        }
+    }
+}
+
+/** " 3" after "Messages" when notifications wait. */
+private fun badge(): String = NotificationDots.notes.value.size.let { if (it > 0) " $it" else "" }
+
+/** Speed in km/h from GPS while driving mode is on; null with no recent fix. */
+@SuppressLint("MissingPermission") // only requested once precise location is granted
+@Composable
+private fun rememberSpeed(allowed: Boolean): Int? {
+    val ctx = LocalContext.current
+    var kmh by remember { mutableStateOf<Int?>(null) }
+    var at by remember { mutableStateOf(0L) }
+    DisposableEffect(allowed) {
+        val lm = ctx.getSystemService(LocationManager::class.java)
+        val listener = LocationListener { loc ->
+            kmh = if (loc.hasSpeed()) (loc.speed * 3.6f).roundToInt() else null
+            at = SystemClock.elapsedRealtime()
+        }
+        if (allowed) runCatching { lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, listener, Looper.getMainLooper()) }
+        onDispose { runCatching { lm.removeUpdates(listener) } }
+    }
+    // a fix older than 5 s (tunnel, GPS lost) shows "—" instead of a frozen number
+    LaunchedEffect(at) { if (at > 0) { delay(5000); kmh = null } }
+    return kmh
+}
+
+@Composable
+private fun SpeedCard(kmh: Int?, allowed: Boolean, onAsk: () -> Unit, wide: Boolean, modifier: Modifier) {
+    val number = kmh?.toString() ?: "—"
+    Column(
+        modifier.clip(D.shape).background(D.card).then(if (allowed) Modifier else Modifier.clickable(onClick = onAsk)).padding(horizontal = 22.dp, vertical = 18.dp),
+        verticalArrangement = if (wide) Arrangement.SpaceBetween else Arrangement.Center,
+    ) {
+        if (wide) DLabel(stringResource(if (allowed) R.string.d_speed else R.string.d_speed_ask))
+        Row(verticalAlignment = Alignment.Bottom) {
+            BasicText(number, style = dText(if (wide) 76 else 64, if (kmh == null) D.dim else D.cyan, spacing = -2f).copy(lineHeight = (if (wide) 76 else 64).sp), maxLines = 1)
+            BasicText("km/h", Modifier.padding(start = 8.dp, bottom = 10.dp), style = dText(18, D.dim, FontWeight.Normal))
+        }
+        if (!allowed && !wide) BasicText(stringResource(R.string.d_speed_ask), style = dText(14, D.dim, FontWeight.Normal))
+        else if (!wide) DLabel(stringResource(R.string.d_speed), Modifier.padding(top = 4.dp))
+    }
+}
+
+/** Arrival time + "15 min · 9.2 km", read from the maps app's notification text. */
+@Composable
+private fun ArrivalCard(nav: Nav?, wide: Boolean, modifier: Modifier) {
+    val (eta, rest) = remember(nav) { nav?.let { splitEta(it.sub.ifBlank { it.text }) } ?: (null to "") }
+    Column(modifier.clip(D.shape).background(D.card).padding(horizontal = 22.dp, vertical = 18.dp), verticalArrangement = Arrangement.Center) {
+        DLabel(stringResource(R.string.d_arrival))
+        if (wide) Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(eta ?: "—", Modifier.weight(1f), style = dText(34), maxLines = 1)
+            if (rest.isNotEmpty()) BasicText(rest.replace(" · ", "\n"), style = dText(18, D.dim, FontWeight.Normal).copy(textAlign = TextAlign.End))
+        } else {
+            BasicText(eta ?: "—", Modifier.padding(top = 4.dp), style = dText(30), maxLines = 2)
+            if (rest.isNotEmpty()) BasicText(rest, Modifier.padding(top = 2.dp), style = dText(16, D.dim, FontWeight.Normal), maxLines = 2)
+        }
+    }
+}
+
+private val ETA_TIME = Regex("""\b\d{1,2}:\d{2}(\s?[AaPp]\.?\s?[Mm]\.?)?""")
+
+/** "12 min · 4.2 km · arrive 18:42" → ("18:42", "12 min · 4.2 km"). */
+internal fun splitEta(s: String): Pair<String?, String> {
+    val time = ETA_TIME.find(s)?.value
+    val rest = s.split("·", "•").map { it.trim() }.filter { it.isNotEmpty() && (time == null || !it.contains(time)) }.joinToString(" · ")
+    return time?.uppercase() to rest
+}
+
+/** Center panel while not in calls/messages: the next turn, or a button to open the map. */
+@Composable
+private fun NavPanel(nav: Nav?, onOpenMap: () -> Unit) {
+    val ctx = LocalContext.current
+    if (nav == null) {
+        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            DriveIcon("nav", D.dim, Modifier.size(56.dp))
+            BasicText(stringResource(R.string.d_no_route), Modifier.padding(top = 16.dp), style = dText(24, D.dim))
+            BasicText(
+                stringResource(R.string.d_open_map),
+                Modifier.padding(top = 22.dp).clip(RoundedCornerShape(50)).background(D.cyan).clickable(onClick = onOpenMap).padding(horizontal = 28.dp, vertical = 16.dp),
+                style = dText(19, D.bg),
+            )
+        }
+        return
+    }
+    val arrow = remember(nav.icon) { nav.icon?.asImageBitmap() }
+    Column(Modifier.fillMaxSize().clickable { NotificationDots.send(ctx, nav.open) }.padding(16.dp)) {
+        // banner: cyan square with the maneuver arrow · distance / street
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(D.bg.copy(alpha = 0.7f)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(76.dp).clip(RoundedCornerShape(20.dp)).background(D.cyan), contentAlignment = Alignment.Center) {
+                if (arrow != null) Image(arrow, null, Modifier.size(48.dp), colorFilter = ColorFilter.tint(D.bg))
+                else DriveIcon("turn", D.bg, Modifier.size(40.dp))
+            }
+            Column(Modifier.padding(start = 18.dp).weight(1f)) {
+                BasicText(nav.title.ifBlank { stringResource(R.string.drive_navigating) }, style = dText(34), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (nav.text.isNotBlank()) BasicText(nav.text, Modifier.padding(top = 2.dp), style = dText(19, D.dim, FontWeight.Normal), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        // the same arrow, large, in a soft cyan halo (where the map would be)
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(150.dp).background(D.cyan.copy(alpha = 0.12f), CircleShape), contentAlignment = Alignment.Center) {
+                if (arrow != null) Image(arrow, null, Modifier.size(92.dp), colorFilter = ColorFilter.tint(D.cyan))
+                else DriveIcon("turn", D.cyan, Modifier.size(80.dp))
+            }
+        }
+    }
+}
+
+/** Favorite contacts as big tiles (initial + name) and the dialer. */
+@Composable
+private fun PhonePanel(contacts: List<DriveContact>, onCall: (DriveContact) -> Unit, onDial: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        (contacts.map { it as DriveContact? } + listOf<DriveContact?>(null)).chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                pair.forEach { c ->
+                    Row(
+                        Modifier.weight(1f).height(88.dp).clip(RoundedCornerShape(22.dp)).background(D.card)
+                            .clickable { if (c != null) onCall(c) else onDial() }.padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(44.dp).background(D.cyan.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
+                            if (c != null) BasicText(c.name.take(1).uppercase(), style = dText(19, D.cyan))
+                            else DriveIcon("phone", D.cyan, Modifier.size(22.dp))
+                        }
+                        BasicText(c?.name ?: stringResource(R.string.d_dial), Modifier.padding(start = 12.dp), style = dText(19), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Bottom bar / grid button: drawn icon over a label. Active = cyan, exit = red. */
+@Composable
+private fun DTile(label: String, icon: String, active: Boolean, modifier: Modifier, exit: Boolean = false, onClick: () -> Unit) {
+    val tint = when { exit -> D.red; active -> D.cyan; else -> D.text }
+    Column(
+        modifier.height(if (LocalConfiguration.current.screenWidthDp > LocalConfiguration.current.screenHeightDp) 76.dp else 92.dp).clip(RoundedCornerShape(24.dp)).background(if (exit) D.redBg else D.card).clickable(onClick = onClick),
+        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        DriveIcon(icon, tint, Modifier.size(30.dp))
+        BasicText(label, Modifier.padding(top = 8.dp), style = dText(16, tint), maxLines = 1)
+    }
+}
+
+/** Line icons for the driving screen. */
 @Composable
 private fun DriveIcon(kind: String, color: Color, modifier: Modifier) = Canvas(modifier) {
     val w = size.width; val h = size.height
-    val st = Stroke(1.8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+    val st = Stroke(2.2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
     when (kind) {
-        "home" -> drawPath(Path().apply {
-            moveTo(w * 0.12f, h * 0.48f); lineTo(w * 0.5f, h * 0.14f); lineTo(w * 0.88f, h * 0.48f)
-            moveTo(w * 0.22f, h * 0.4f); lineTo(w * 0.22f, h * 0.86f); lineTo(w * 0.78f, h * 0.86f); lineTo(w * 0.78f, h * 0.4f)
-            moveTo(w * 0.42f, h * 0.86f); lineTo(w * 0.42f, h * 0.62f); lineTo(w * 0.58f, h * 0.62f); lineTo(w * 0.58f, h * 0.86f)
-        }, color, style = st)
-        "work" -> {
-            drawRoundRect(color, Offset(w * 0.1f, h * 0.32f), Size(w * 0.8f, h * 0.52f), CornerRadius(w * 0.08f), style = st)
-            drawPath(Path().apply { moveTo(w * 0.36f, h * 0.32f); lineTo(w * 0.36f, h * 0.18f); lineTo(w * 0.64f, h * 0.18f); lineTo(w * 0.64f, h * 0.32f) }, color, style = st)
-            drawLine(color, Offset(w * 0.1f, h * 0.54f), Offset(w * 0.9f, h * 0.54f), st.width)
-        }
-        "map" -> {
-            drawPath(Path().apply {
-                moveTo(w * 0.5f, h * 0.9f)
-                cubicTo(w * 0.2f, h * 0.56f, w * 0.18f, h * 0.44f, w * 0.18f, h * 0.38f)
-                cubicTo(w * 0.18f, h * 0.18f, w * 0.34f, h * 0.08f, w * 0.5f, h * 0.08f)
-                cubicTo(w * 0.66f, h * 0.08f, w * 0.82f, h * 0.18f, w * 0.82f, h * 0.38f)
-                cubicTo(w * 0.82f, h * 0.44f, w * 0.8f, h * 0.56f, w * 0.5f, h * 0.9f); close()
-            }, color, style = st)
-            drawCircle(color, w * 0.1f, Offset(w * 0.5f, h * 0.38f), style = st)
-        }
         "phone" -> drawPath(Path().apply {
             moveTo(w * 0.26f, h * 0.12f); lineTo(w * 0.4f, h * 0.32f); lineTo(w * 0.32f, h * 0.44f)
             quadraticTo(w * 0.42f, h * 0.6f, w * 0.56f, h * 0.68f); lineTo(w * 0.68f, h * 0.6f); lineTo(w * 0.88f, h * 0.74f)
             lineTo(w * 0.78f, h * 0.88f); quadraticTo(w * 0.3f, h * 0.8f, w * 0.12f, h * 0.24f); close()
         }, color, style = st)
+        "chat" -> drawPath(Path().apply {
+            addOval(androidx.compose.ui.geometry.Rect(w * 0.12f, h * 0.14f, w * 0.88f, h * 0.78f))
+            moveTo(w * 0.26f, h * 0.68f); lineTo(w * 0.16f, h * 0.9f); lineTo(w * 0.4f, h * 0.76f)
+        }, color, style = st)
+        "music" -> {
+            drawCircle(color, w * 0.12f, Offset(w * 0.28f, h * 0.76f), style = st)
+            drawCircle(color, w * 0.12f, Offset(w * 0.74f, h * 0.68f), style = st)
+            drawPath(Path().apply { moveTo(w * 0.4f, h * 0.76f); lineTo(w * 0.4f, h * 0.2f); lineTo(w * 0.86f, h * 0.12f); lineTo(w * 0.86f, h * 0.68f) }, color, style = st)
+            drawLine(color, Offset(w * 0.4f, h * 0.34f), Offset(w * 0.86f, h * 0.26f), st.width)
+        }
+        "x" -> {
+            drawLine(color, Offset(w * 0.2f, h * 0.2f), Offset(w * 0.8f, h * 0.8f), st.width, StrokeCap.Round)
+            drawLine(color, Offset(w * 0.8f, h * 0.2f), Offset(w * 0.2f, h * 0.8f), st.width, StrokeCap.Round)
+        }
+        "nav" -> drawPath(Path().apply { moveTo(w * 0.88f, h * 0.12f); lineTo(w * 0.12f, h * 0.44f); lineTo(w * 0.48f, h * 0.52f); lineTo(w * 0.56f, h * 0.88f); close() }, color, style = st)
+        "turn" -> drawPath(Path().apply {
+            moveTo(w * 0.3f, h * 0.9f); lineTo(w * 0.3f, h * 0.5f); quadraticTo(w * 0.3f, h * 0.36f, w * 0.44f, h * 0.36f); lineTo(w * 0.8f, h * 0.36f)
+            moveTo(w * 0.64f, h * 0.2f); lineTo(w * 0.8f, h * 0.36f); lineTo(w * 0.64f, h * 0.52f)
+        }, color, style = Stroke(3.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
-/**
- * Driving screen: clock, big player, navigation (home / work / map) and favorite contacts.
- * Everything is large, high-contrast and one tap away.
- */
-@Composable
-fun DriveScreen(
-    homeAddress: String,
-    workAddress: String,
-    contacts: List<DriveContact>,
-    quickTo: DriveContact? = null,
-    onNavigate: (String?) -> Unit,   // null = just open the map
-    onCall: (DriveContact) -> Unit,
-    onDial: () -> Unit,
-    onSetup: () -> Unit,
-    onExit: () -> Unit,
-    favorites: List<App> = emptyList(),
-    icon: (App) -> ImageBitmap = { error("no icons") },
-    onOpen: (App) -> Unit = {},
-) {
-    val now by produceState(LocalDateTime.now()) {
-        while (true) { value = LocalDateTime.now(); delay(1000L * (60 - value.second)) }
-    }
-    val wide = LocalConfiguration.current.run { screenWidthDp > screenHeightDp || screenWidthDp >= 600 }
-    val header: @Composable () -> Unit = {
-        // header: time · driving · exit
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                BasicText(
-                    now.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase(),
-                    style = TextStyle(color = Fg, fontSize = 52.sp, fontFamily = Thin, fontWeight = FontWeight.Light, shadow = TextShadow),
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(7.dp).background(Accent, CircleShape))
-                    BasicText(
-                        stringResource(R.string.drive_title) + "  ·  " + now.format(DateTimeFormatter.ofPattern("EEE d MMM")).lowercase().replace(".", ""),
-                        Modifier.padding(start = 8.dp), style = SmallText,
-                    )
-                }
-            }
-            BasicText(
-                stringResource(R.string.drive_exit),
-                Modifier.clip(RoundedCornerShape(50)).background(CardColor).clickable(onClick = onExit).padding(horizontal = 20.dp, vertical = 12.dp),
-                style = RowText.copy(fontSize = 18.sp),
-            )
-        }
-
-    }
-    val navAndCalls: @Composable () -> Unit = {
-        // navigate (while already navigating, only "nearby" stays: room for the nav card and the player)
-        if (NotificationDots.nav.value == null) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            BigButton(stringResource(R.string.drive_home), dim = homeAddress.isBlank(), icon = "home") { if (homeAddress.isBlank()) onSetup() else onNavigate(homeAddress) }
-            BigButton(stringResource(R.string.drive_work), dim = workAddress.isBlank(), icon = "work") { if (workAddress.isBlank()) onSetup() else onNavigate(workAddress) }
-            BigButton(stringResource(R.string.drive_map), icon = "map") { onNavigate(null) }
-        }
-        Nearby()
-        quickTo?.let { QuickMessages(it) }
-
-        // call: up to 4 favorites (2 per row) + dialer
-        val rows = (contacts.map { it as DriveContact? } + listOf<DriveContact?>(null)).chunked(2)
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            rows.forEach { pair ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    pair.forEach { c ->
-                        if (c != null) BigButton(c.name.lowercase(), initial = c.name.firstOrNull()) { onCall(c) }
-                        else BigButton(stringResource(R.string.drive_dial), dim = true, icon = "phone", onClick = onDial)
-                    }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-        // the launcher's favorites, big and in grayscale, to open other apps without leaving driving mode
-        if (favorites.isNotEmpty()) Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            favorites.forEach { app ->
-                Image(
-                    icon(app), app.label,
-                    Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)).background(CardColor).clickable { onOpen(app) }.padding(10.dp),
-                )
-            }
-        }
-    }
-    val outer = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 28.dp, vertical = 20.dp)
-    // portrait: the player keeps its full size (squeezed into the leftover space its buttons shrank to nothing);
-    // when everything doesn't fit, the screen scrolls instead
-    if (!wide) BoxWithConstraints(outer) {
-        Column(Modifier.verticalScroll(rememberScrollState()).heightIn(min = maxHeight), verticalArrangement = Arrangement.SpaceBetween) {
-            Column(verticalArrangement = Arrangement.spacedBy(28.dp)) {
-                header()
-                NotificationDots.nav.value?.let { NavCard(it) }
-            }
-            DriveMusic(Modifier.padding(vertical = 28.dp))
-            Pages(Modifier) { Column(verticalArrangement = Arrangement.spacedBy(28.dp)) { navAndCalls() } }
-        }
-    } else Row(outer, horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-        // landscape (phone on a car mount): player on the left, destinations and calls on the right
-        Column(Modifier.weight(1f).fillMaxHeight()) {
-            header()
-            NotificationDots.nav.value?.let { NavCard(it, Modifier.padding(top = 16.dp)) }
-            DriveMusic(Modifier.weight(1f))
-        }
-        Pages(Modifier.weight(1f).fillMaxHeight()) {
-            Column(Modifier.fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically)) { navAndCalls() }
-        }
-    }
-}
-
-/** Next turn while the maps app navigates (read from its notification); tap goes back to the map. */
-@Composable
-private fun NavCard(n: Nav, modifier: Modifier = Modifier) {
-    val ctx = LocalContext.current
-    Row(
-        modifier.fillMaxWidth().clip(CardShape).background(Accent.copy(alpha = 0.16f))
-            .clickable { NotificationDots.send(ctx, n.open) }.padding(18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        val arrow = remember(n.icon) { n.icon?.asImageBitmap() }
-        arrow?.let { Image(it, null, Modifier.padding(end = 16.dp).size(56.dp), colorFilter = ColorFilter.tint(Accent)) }
-        Column(Modifier.weight(1f)) {
-            BasicText(n.title.ifBlank { stringResource(R.string.drive_navigating) }, style = RowText.copy(fontSize = 28.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (n.text.isNotBlank()) BasicText(n.text, Modifier.padding(top = 2.dp), style = RowText.copy(fontSize = 18.sp, color = Fg.copy(alpha = 0.8f)), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (n.sub.isNotBlank()) BasicText(n.sub, Modifier.padding(top = 4.dp), style = SmallText, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-/** Two pages under the player — the big buttons and the notifications in large type — swiped sideways or picked by name. */
-@Composable
-private fun Pages(modifier: Modifier, buttons: @Composable () -> Unit) {
-    val pager = rememberPagerState { 2 }
-    val scope = rememberCoroutineScope()
-    val count = NotificationDots.notes.value.size
-    Column(modifier) {
-        Row(Modifier.padding(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(stringResource(R.string.drive_page_buttons), stringResource(R.string.drive_page_notes) + if (count > 0) "  $count" else "")
-                .forEachIndexed { i, label ->
-                    val on = pager.currentPage == i
-                    BasicText(
-                        label,
-                        Modifier.clip(RoundedCornerShape(50)).then(if (on) Modifier.background(Fg.copy(alpha = 0.08f)) else Modifier)
-                            .clickable { scope.launch { pager.animateScrollToPage(i) } }.padding(horizontal = 16.dp, vertical = 10.dp),
-                        style = SmallText.copy(fontSize = 16.sp, color = if (on) Fg else Dim),
-                    )
-                }
-        }
-        HorizontalPager(pager, Modifier.fillMaxWidth(), pageSpacing = 28.dp, verticalAlignment = Alignment.Top) { page ->
-            if (page == 0) buttons() else DriveNotes()
-        }
-    }
-}
-
+/** Notifications in large type: app · when, who / title, the text. Tap opens it, × dismisses it; chats get one-tap replies. */
 @OptIn(ExperimentalLayoutApi::class)
-/** Notifications in large type: app · when, who / title, the text. Tap opens it, × dismisses it. */
 @Composable
 private fun DriveNotes() {
     val ctx = LocalContext.current
     val notes = NotificationDots.notes.value
     if (notes.isEmpty()) {
-        BasicText(stringResource(R.string.drive_no_notes), Modifier.padding(top = 12.dp), style = RowText.copy(fontSize = 22.sp, color = Dim))
+        BasicText(stringResource(R.string.d_no_notes), Modifier.padding(top = 8.dp), style = dText(22, D.dim))
         return
     }
     val replies = driveReplies().filter { it.isNotBlank() }
     var sent by remember { mutableStateOf<String?>(null) } // key of the notification just answered
     LaunchedEffect(sent) { if (sent != null) { delay(2000); sent = null } }
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        notes.take(8).forEach { m ->
-            val app = remember(m.pkg) { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(m.pkg, 0)).toString().lowercase() } }.getOrDefault("") }
-            val icon = remember(m.pkg) {
-                runCatching {
-                    val d = ctx.packageManager.getApplicationIcon(m.pkg)
-                    val px = (32 * ctx.resources.displayMetrics.density).toInt()
-                    android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
-                        .also { d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(it)) }.asImageBitmap()
-                }.getOrNull()
-            }
-            val ago = (System.currentTimeMillis() - m.time) / 60_000
-            Row(
-                Modifier.fillMaxWidth().clip(CardShape).background(CardColor)
-                    .clickable { NotificationDots.send(ctx, m.open) }.padding(start = 20.dp, top = 16.dp, bottom = 18.dp),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        icon?.let { Image(it, null, Modifier.padding(end = 8.dp).size(16.dp), colorFilter = Grayscale, alpha = 0.8f) }
-                        BasicText(
-                            "$app  ·  " + if (ago < 1) stringResource(R.string.msg_now) else stringResource(R.string.msg_min, ago.toInt()),
-                            style = SmallText.copy(fontSize = 15.sp), maxLines = 1,
-                        )
-                    }
-                    if (m.title.isNotBlank()) BasicText(m.title, Modifier.padding(top = 6.dp), style = RowText.copy(fontSize = 26.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (m.text.isNotBlank()) BasicText(
-                        m.text, Modifier.padding(top = 4.dp), style = RowText.copy(fontSize = 21.sp, color = Fg.copy(alpha = 0.8f)),
-                        maxLines = 4, overflow = TextOverflow.Ellipsis,
-                    )
-                    // answerable (chats): one tap sends a reply through the app's own reply action
-                    if (m.reply != null && replies.isNotEmpty()) FlowRow(
-                        Modifier.padding(top = 14.dp, end = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        if (sent == m.key) BigPill(stringResource(R.string.msg_sent)) {}
-                        else replies.forEach { r -> BigPill(r) { if (NotificationDots.reply(ctx, m, r, fromSuggestion = false)) sent = m.key } }
-                    }
-                }
-                // dismiss
-                val c = Dim
-                Canvas(Modifier.size(52.dp).clip(CircleShape).clickable { NotificationDots.dismiss(m) }.padding(17.dp)) {
-                    drawLine(c, Offset.Zero, Offset(size.width, size.height), 1.5.dp.toPx(), StrokeCap.Round)
-                    drawLine(c, Offset(size.width, 0f), Offset(0f, size.height), 1.5.dp.toPx(), StrokeCap.Round)
-                }
-            }
+    notes.take(8).forEach { m ->
+        val app = remember(m.pkg) { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(m.pkg, 0)).toString() } }.getOrDefault("") }
+        val icon = remember(m.pkg) {
+            runCatching {
+                val d = ctx.packageManager.getApplicationIcon(m.pkg)
+                val px = (32 * ctx.resources.displayMetrics.density).toInt()
+                android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+                    .also { d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(it)) }.asImageBitmap()
+            }.getOrNull()
         }
-    }
-}
-
-/** Large filled pill for a horizontal row of short actions. */
-@Composable
-private fun BigPill(label: String, onClick: () -> Unit) = Box(
-    Modifier.height(64.dp).clip(RoundedCornerShape(50)).background(CardColor)
-        .clickable(onClick = onClick).padding(horizontal = 24.dp),
-    contentAlignment = Alignment.Center,
-) { BasicText(label, style = RowText.copy(fontSize = 18.sp), maxLines = 1) }
-
-/** "nearby": gas, coffee, parking — opens the maps app searching around you. */
-@Composable
-private fun Nearby() {
-    val ctx = LocalContext.current
-    Column {
-        BasicText(stringResource(R.string.drive_nearby), style = SmallText)
+        val ago = (System.currentTimeMillis() - m.time) / 60_000
         Row(
-            Modifier.padding(top = 10.dp).fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(D.card)
+                .clickable { NotificationDots.send(ctx, m.open) }.padding(start = 20.dp, top = 16.dp, bottom = 18.dp),
         ) {
-            listOf(R.string.near_gas, R.string.near_coffee, R.string.near_parking).forEach { id ->
-                val label = stringResource(id)
-                BigPill(label) {
-                    runCatching {
-                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(label)}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    icon?.let { Image(it, null, Modifier.padding(end = 8.dp).size(18.dp)) }
+                    BasicText(
+                        "$app  ·  " + if (ago < 1) stringResource(R.string.msg_now) else stringResource(R.string.msg_min, ago.toInt()),
+                        style = dText(15, D.dim, FontWeight.Normal), maxLines = 1,
+                    )
+                }
+                if (m.title.isNotBlank()) BasicText(m.title, Modifier.padding(top = 6.dp), style = dText(24), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (m.text.isNotBlank()) BasicText(m.text, Modifier.padding(top = 4.dp), style = dText(20, D.text.copy(alpha = 0.8f), FontWeight.Normal), maxLines = 4, overflow = TextOverflow.Ellipsis)
+                if (m.reply != null && replies.isNotEmpty()) FlowRow(
+                    Modifier.padding(top = 14.dp, end = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (sent == m.key) DPill(stringResource(R.string.msg_sent)) {}
+                    else replies.forEach { r -> DPill(r) { if (NotificationDots.reply(ctx, m, r, fromSuggestion = false)) sent = m.key } }
                 }
             }
+            DriveIcon("x", D.dim, Modifier.size(52.dp).clip(CircleShape).clickable { NotificationDots.dismiss(m) }.padding(17.dp))
         }
     }
 }
 
-/** "whatsapp to …" and the three quick messages as big pills; a sent one shows "sent ✓" for a moment. */
+/** Large pill for short actions (replies, quick messages). */
+@Composable
+private fun DPill(label: String, onClick: () -> Unit) = Box(
+    Modifier.height(60.dp).clip(RoundedCornerShape(50)).background(D.cyan.copy(alpha = 0.14f))
+        .clickable(onClick = onClick).padding(horizontal = 22.dp),
+    contentAlignment = Alignment.Center,
+) { BasicText(label, style = dText(17, D.cyan), maxLines = 1) }
+
+/** "WhatsApp to …" and the three quick messages; a sent one shows "sent ✓" for a moment. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun QuickMessages(to: DriveContact) {
     val ctx = LocalContext.current
     var sent by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(sent) { if (sent != null) { delay(2000); sent = null } }
     Column {
-        BasicText(stringResource(R.string.drive_quick, to.name.lowercase()), style = SmallText)
-        Row(
-            Modifier.padding(top = 10.dp).fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+        DLabel(stringResource(R.string.d_quick, to.name))
+        FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             quickMessages().filter { it.isNotBlank() }.forEach { text ->
-                BigPill(if (sent == text) stringResource(R.string.msg_sent) else text) { if (Drive.quickSend(ctx, to, text)) sent = text }
+                DPill(if (sent == text) stringResource(R.string.msg_sent) else text) { if (Drive.quickSend(ctx, to, text)) sent = text }
             }
         }
     }
 }
 
 /**
- * Big player: cover, title, artist · app, progress and three large round controls.
- * Swipe the title sideways = next / previous song; long-press play/pause = forward 30 s.
+ * Player card. Compact (portrait): cover · title / artist + progress line · play button.
+ * Full (landscape): cover · title / artist, progress with times, previous · play · next. Tap the title to open the app.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DriveMusic(modifier: Modifier) {
+private fun PlayerCard(compact: Boolean, onOpenPlayer: () -> Unit, modifier: Modifier = Modifier) {
     val media = rememberMediaNow()
     val c = media.controller
     val meta = remember(media.tick, c) { c?.metadata }
     val state = remember(media.tick, c) { c?.playbackState }
     val playing = state?.state == PlaybackState.STATE_PLAYING
     val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
+    val artist = meta?.run { getString(MediaMetadata.METADATA_KEY_ARTIST) ?: getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) }
     val art = remember(meta) {
         meta?.run { getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: getBitmap(MediaMetadata.METADATA_KEY_ART) ?: getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON) }?.asImageBitmap()
     }
-    BoxWithConstraints(modifier.fillMaxWidth().clip(CardShape).background(CardColor)) {
-    val tight = maxHeight < 330.dp // landscape with the nav card: no room for the cover
-    // the cover, blurred and veiled, tints the card (blur needs Android 12; older ones just get the veil)
-    if (art != null && title != null) {
-        Image(art, null, Modifier.matchParentSize().blur(48.dp), contentScale = ContentScale.Crop)
-        Box(Modifier.matchParentSize().background(Bg.copy(alpha = 0.7f)))
-    }
-    Column(Modifier.fillMaxWidth().padding(22.dp).then(if (constraints.hasBoundedHeight) Modifier.fillMaxHeight() else Modifier), verticalArrangement = Arrangement.Center) {
-        if (c == null || title == null) {
-            BasicText(stringResource(R.string.music_nothing), style = RowText.copy(fontSize = 22.sp, color = Dim))
-            // installed music players (apps that declare themselves as the music app category), last used first
-            val ctx = LocalContext.current
-            val players = remember {
-                val pm = ctx.packageManager
-                val last = ctx.getSharedPreferences("launcher", Context.MODE_PRIVATE).getString("lastPlayer", null)
-                pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC), 0)
-                    .map { it.activityInfo.packageName }.distinct()
-                    .mapNotNull { pkg -> pm.getLaunchIntentForPackage(pkg)?.let { pkg to it } }
-                    .sortedBy { (pkg, _) -> if (pkg == last) 0 else 1 }
-                    .take(4)
-                    .map { (pkg, launch) -> pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString().lowercase() to launch }
-            }
-            if (players.isNotEmpty()) Column(Modifier.padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                players.chunked(2).forEach { pair ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        pair.forEach { (label, launch) ->
-                            BigButton(label) { runCatching { ctx.startActivity(Intent(launch).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
-                        }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
-            return@Column
-        }
-        // cover · title / artist · app — tap opens the player app
-        val ctx = LocalContext.current
-        val app = remember(c.packageName) { runCatching { ctx.packageManager.run { getApplicationLabel(getApplicationInfo(c.packageName, 0)).toString().lowercase() } }.getOrNull() }
-        val haptic = LocalHapticFeedback.current
-        val scope = rememberCoroutineScope()
-        val drag = remember { Animatable(0f) } // the title follows the finger, then springs back
-        Row(
-            Modifier.offset { IntOffset(drag.value.roundToInt(), 0) }
-                .pointerInput(c) {
-                    val skipAt = 64.dp.toPx()
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            val dx = drag.value
-                            if (dx <= -skipAt) c.transportControls.skipToNext() else if (dx >= skipAt) c.transportControls.skipToPrevious()
-                            if (kotlin.math.abs(dx) >= skipAt) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            scope.launch { drag.animateTo(0f, spring()) }
-                        },
-                        onDragCancel = { scope.launch { drag.animateTo(0f, spring()) } },
-                    ) { change, dx -> change.consume(); scope.launch { drag.snapTo((drag.value + dx * 0.6f).coerceIn(-200f * density, 200f * density)) } }
-                }
-                .clickable(interactionSource = null, indication = null) {
-                    ctx.packageManager.getLaunchIntentForPackage(c.packageName)?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
-                },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (art != null && !tight) Image(art, null, Modifier.padding(end = 20.dp).size(104.dp).clip(RoundedCornerShape(18.dp)), contentScale = ContentScale.Crop)
-            Column(Modifier.weight(1f)) {
-                BasicText(title.lowercase(), Modifier.basicMarquee(), style = RowText.copy(fontSize = 30.sp), maxLines = 1)
-                val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
-                val sub = listOfNotNull(artist?.lowercase(), app).joinToString("  ·  ")
-                if (sub.isNotEmpty()) BasicText(sub, Modifier.padding(top = 4.dp), style = SmallText.copy(fontSize = 18.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        MediaProgress(c, meta, state, playing, media.tick, Modifier.padding(top = 20.dp), big = true)
-        val controls = c.transportControls
-        Row(
-            Modifier.fillMaxWidth().padding(top = 16.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.size(84.dp).clip(CircleShape).background(CardColor).clickable { controls.skipToPrevious() }, contentAlignment = Alignment.Center) {
-                PlayerIcon("prev", Fg, Modifier.size(40.dp))
-            }
-            Box(
-                Modifier.size(112.dp).clip(CircleShape).background(Accent).combinedClickable(
-                    onLongClick = {
-                        state?.let { st ->
-                            val pos = if (playing) st.position + ((SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong() else st.position
-                            controls.seekTo(pos + 30_000)
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        }
-                    },
-                ) { if (playing) controls.pause() else controls.play() },
-                contentAlignment = Alignment.Center,
-            ) { PlayerIcon(if (playing) "pause" else "play", Bg, Modifier.size(52.dp)) }
-            Box(Modifier.size(84.dp).clip(CircleShape).background(CardColor).clickable { controls.skipToNext() }, contentAlignment = Alignment.Center) {
-                PlayerIcon("next", Fg, Modifier.size(40.dp))
-            }
+    val ctx = LocalContext.current
+    val open = { c?.packageName?.let { ctx.packageManager.getLaunchIntentForPackage(it) }?.let { runCatching { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } ?: onOpenPlayer(); Unit }
+    val cover: @Composable (Int) -> Unit = { s ->
+        Box(Modifier.size(s.dp).clip(RoundedCornerShape(18.dp)).background(D.track).clickable(onClick = open), contentAlignment = Alignment.Center) {
+            if (art != null && title != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else DriveIcon("music", D.dim, Modifier.size((s / 2.6f).dp))
         }
     }
+    val names: @Composable (Modifier, Int) -> Unit = { m, size ->
+        Column(m.clickable(interactionSource = null, indication = null, onClick = open)) {
+            if (title != null) BasicText(title, Modifier.basicMarquee(), style = dText(size), maxLines = 1)
+            else BasicText(stringResource(R.string.d_nothing), style = dText(size, D.dim), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (title != null && artist != null) BasicText(artist, Modifier.padding(top = 2.dp), style = dText(size - 6, D.dim, FontWeight.Normal), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+    val playButton: @Composable (Int) -> Unit = { s ->
+        Box(
+            Modifier.size(s.dp).clip(CircleShape).background(D.cyan)
+                .clickable { if (c == null || title == null) onOpenPlayer() else if (playing) c.transportControls.pause() else c.transportControls.play() },
+            contentAlignment = Alignment.Center,
+        ) { PlayerIcon(if (playing) "pause" else "play", D.bg, Modifier.size((s * 0.42f).dp)) }
+    }
+    val progress: @Composable (Modifier, Boolean) -> Unit = { m, times ->
+        if (c != null && meta != null) MediaProgress(c, meta, state, playing, media.tick, m, big = !compact, fill = D.cyan, track = D.track, timeColor = D.dim, times = times)
+    }
+    Column(modifier.fillMaxWidth().clip(D.shape).background(D.card).padding(18.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        if (compact) Row(verticalAlignment = Alignment.CenterVertically) {
+            cover(64)
+            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
+                names(Modifier, 21)
+                progress(Modifier.padding(top = 6.dp), false)
+            }
+            playButton(68)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                cover(60)
+                Column(Modifier.padding(start = 14.dp).weight(1f)) { names(Modifier, 20); progress(Modifier.padding(top = 4.dp), false) }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(56.dp).clip(CircleShape).background(D.track).clickable { c?.transportControls?.skipToPrevious() }, contentAlignment = Alignment.Center) {
+                    PlayerIcon("prev", D.text, Modifier.size(26.dp))
+                }
+                playButton(68)
+                Box(Modifier.size(56.dp).clip(CircleShape).background(D.track).clickable { c?.transportControls?.skipToNext() }, contentAlignment = Alignment.Center) {
+                    PlayerIcon("next", D.text, Modifier.size(26.dp))
+                }
+            }
+        }
     }
 }

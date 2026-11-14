@@ -295,7 +295,10 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
 
 /** Seekable progress line with elapsed / total times; nothing when the player reports no duration. [big] = driving mode sizes. */
 @Composable
-internal fun MediaProgress(c: MediaController, meta: MediaMetadata, state: PlaybackState?, playing: Boolean, tick: Int, modifier: Modifier = Modifier, big: Boolean = false) {
+internal fun MediaProgress(
+    c: MediaController, meta: MediaMetadata, state: PlaybackState?, playing: Boolean, tick: Int, modifier: Modifier = Modifier, big: Boolean = false,
+    fill: Color = Fg, track: Color = Dim, timeColor: Color? = null, times: Boolean = true,
+) {
     val duration = meta.getLong(MediaMetadata.METADATA_KEY_DURATION)
     if (duration <= 0 || state == null) return
     // position ticks once a second while playing (PlaybackState only reports the last known position)
@@ -305,7 +308,7 @@ internal fun MediaProgress(c: MediaController, meta: MediaMetadata, state: Playb
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: (position.toFloat() / duration).coerceIn(0f, 1f)
     val canSeek = state.actions and PlaybackState.ACTION_SEEK_TO != 0L
-    val fg = Fg; val dim = Dim
+    val fg = fill; val dim = track
     val line = if (big) 3.dp else 2.dp
     Column(modifier) {
         Canvas(
@@ -325,8 +328,8 @@ internal fun MediaProgress(c: MediaController, meta: MediaMetadata, state: Playb
             val dot = if (dragFraction != null) (if (big) 11 else 7) else (if (big) 7 else 4)
             drawCircle(fg, radius = dot.dp.toPx(), center = Offset(size.width * fraction, y))
         }
-        val t = SmallText.copy(fontSize = if (big) 16.sp else 12.sp)
-        Row(Modifier.fillMaxWidth()) {
+        val t = SmallText.copy(fontSize = if (big) 16.sp else 12.sp).let { if (timeColor != null) it.copy(color = timeColor, shadow = null) else it }
+        if (times) Row(Modifier.fillMaxWidth()) {
             BasicText(fmt((fraction * duration).toLong()), style = t)
             Spacer(Modifier.weight(1f))
             BasicText(fmt(duration), style = t)
