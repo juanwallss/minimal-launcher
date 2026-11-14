@@ -12,6 +12,13 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -182,18 +189,58 @@ class CarReceiver : BroadcastReceiver() {
     }
 }
 
-/** Big outlined target, easy to hit without looking. */
+// Driving mode look: soft filled cards (no outlines), large radius, accent only where it matters (play, icons, nav).
+private val CardShape = RoundedCornerShape(26.dp)
+private val CardColor @Composable get() = Fg.copy(alpha = 0.07f)
+
+/** Big filled tile with an optional drawn icon (home · work · map · phone) or a contact's initial; easy to hit without looking. */
 @Composable
-private fun RowScope.BigButton(label: String, dim: Boolean = false, onClick: () -> Unit) = Box(
-    Modifier.weight(1f).height(76.dp).clip(RoundedCornerShape(20.dp))
-        .border(1.dp, if (dim) Dim else Fg, RoundedCornerShape(20.dp))
-        .clickable(onClick = onClick),
-    contentAlignment = Alignment.Center,
+private fun RowScope.BigButton(label: String, dim: Boolean = false, icon: String? = null, initial: Char? = null, onClick: () -> Unit) = Row(
+    Modifier.weight(1f).height(84.dp).clip(CardShape).background(CardColor)
+        .clickable(onClick = onClick).padding(horizontal = 16.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = if (icon == null && initial == null) Arrangement.Center else Arrangement.Start,
 ) {
-    BasicText(
-        label, Modifier.padding(horizontal = 8.dp),
-        style = RowText.copy(fontSize = 20.sp, color = if (dim) Dim else Fg), maxLines = 1, overflow = TextOverflow.Ellipsis,
-    )
+    val tint = if (dim) Dim else Accent
+    if (icon != null) DriveIcon(icon, tint, Modifier.padding(end = 12.dp).size(30.dp))
+    if (initial != null) Box(Modifier.padding(end = 12.dp).size(40.dp).background(tint.copy(alpha = 0.2f), CircleShape), contentAlignment = Alignment.Center) {
+        BasicText(initial.uppercase(), style = RowText.copy(fontSize = 18.sp, color = tint))
+    }
+    BasicText(label, style = RowText.copy(fontSize = 20.sp, color = if (dim) Dim else Fg), maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** Thin line icons for the driving tiles. */
+@Composable
+private fun DriveIcon(kind: String, color: Color, modifier: Modifier) = Canvas(modifier) {
+    val w = size.width; val h = size.height
+    val st = Stroke(1.8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+    when (kind) {
+        "home" -> drawPath(Path().apply {
+            moveTo(w * 0.12f, h * 0.48f); lineTo(w * 0.5f, h * 0.14f); lineTo(w * 0.88f, h * 0.48f)
+            moveTo(w * 0.22f, h * 0.4f); lineTo(w * 0.22f, h * 0.86f); lineTo(w * 0.78f, h * 0.86f); lineTo(w * 0.78f, h * 0.4f)
+            moveTo(w * 0.42f, h * 0.86f); lineTo(w * 0.42f, h * 0.62f); lineTo(w * 0.58f, h * 0.62f); lineTo(w * 0.58f, h * 0.86f)
+        }, color, style = st)
+        "work" -> {
+            drawRoundRect(color, Offset(w * 0.1f, h * 0.32f), Size(w * 0.8f, h * 0.52f), CornerRadius(w * 0.08f), style = st)
+            drawPath(Path().apply { moveTo(w * 0.36f, h * 0.32f); lineTo(w * 0.36f, h * 0.18f); lineTo(w * 0.64f, h * 0.18f); lineTo(w * 0.64f, h * 0.32f) }, color, style = st)
+            drawLine(color, Offset(w * 0.1f, h * 0.54f), Offset(w * 0.9f, h * 0.54f), st.width)
+        }
+        "map" -> {
+            drawPath(Path().apply {
+                moveTo(w * 0.5f, h * 0.9f)
+                cubicTo(w * 0.2f, h * 0.56f, w * 0.18f, h * 0.44f, w * 0.18f, h * 0.38f)
+                cubicTo(w * 0.18f, h * 0.18f, w * 0.34f, h * 0.08f, w * 0.5f, h * 0.08f)
+                cubicTo(w * 0.66f, h * 0.08f, w * 0.82f, h * 0.18f, w * 0.82f, h * 0.38f)
+                cubicTo(w * 0.82f, h * 0.44f, w * 0.8f, h * 0.56f, w * 0.5f, h * 0.9f); close()
+            }, color, style = st)
+            drawCircle(color, w * 0.1f, Offset(w * 0.5f, h * 0.38f), style = st)
+        }
+        "phone" -> drawPath(Path().apply {
+            moveTo(w * 0.26f, h * 0.12f); lineTo(w * 0.4f, h * 0.32f); lineTo(w * 0.32f, h * 0.44f)
+            quadraticTo(w * 0.42f, h * 0.6f, w * 0.56f, h * 0.68f); lineTo(w * 0.68f, h * 0.6f); lineTo(w * 0.88f, h * 0.74f)
+            lineTo(w * 0.78f, h * 0.88f); quadraticTo(w * 0.3f, h * 0.8f, w * 0.12f, h * 0.24f); close()
+        }, color, style = st)
+    }
 }
 
 /**
@@ -222,14 +269,22 @@ fun DriveScreen(
     val header: @Composable () -> Unit = {
         // header: time · driving · exit
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            BasicText(
-                now.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase(),
-                style = TextStyle(color = Fg, fontSize = 52.sp, fontFamily = Thin, fontWeight = FontWeight.Thin, shadow = TextShadow),
-            )
-            BasicText(stringResource(R.string.drive_title), Modifier.padding(start = 16.dp).weight(1f), style = SmallText)
+            Column(Modifier.weight(1f)) {
+                BasicText(
+                    now.format(DateTimeFormatter.ofPattern(Look.timePattern())).lowercase(),
+                    style = TextStyle(color = Fg, fontSize = 52.sp, fontFamily = Thin, fontWeight = FontWeight.Light, shadow = TextShadow),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).background(Accent, CircleShape))
+                    BasicText(
+                        stringResource(R.string.drive_title) + "  ·  " + now.format(DateTimeFormatter.ofPattern("EEE d MMM")).lowercase().replace(".", ""),
+                        Modifier.padding(start = 8.dp), style = SmallText,
+                    )
+                }
+            }
             BasicText(
                 stringResource(R.string.drive_exit),
-                Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onExit).padding(12.dp),
+                Modifier.clip(RoundedCornerShape(50)).background(CardColor).clickable(onClick = onExit).padding(horizontal = 20.dp, vertical = 12.dp),
                 style = RowText.copy(fontSize = 18.sp),
             )
         }
@@ -238,9 +293,9 @@ fun DriveScreen(
     val navAndCalls: @Composable () -> Unit = {
         // navigate (while already navigating, only "nearby" stays: room for the nav card and the player)
         if (NotificationDots.nav.value == null) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            BigButton(stringResource(R.string.drive_home), dim = homeAddress.isBlank()) { if (homeAddress.isBlank()) onSetup() else onNavigate(homeAddress) }
-            BigButton(stringResource(R.string.drive_work), dim = workAddress.isBlank()) { if (workAddress.isBlank()) onSetup() else onNavigate(workAddress) }
-            BigButton(stringResource(R.string.drive_map)) { onNavigate(null) }
+            BigButton(stringResource(R.string.drive_home), dim = homeAddress.isBlank(), icon = "home") { if (homeAddress.isBlank()) onSetup() else onNavigate(homeAddress) }
+            BigButton(stringResource(R.string.drive_work), dim = workAddress.isBlank(), icon = "work") { if (workAddress.isBlank()) onSetup() else onNavigate(workAddress) }
+            BigButton(stringResource(R.string.drive_map), icon = "map") { onNavigate(null) }
         }
         Nearby()
         quickTo?.let { QuickMessages(it) }
@@ -251,8 +306,8 @@ fun DriveScreen(
             rows.forEach { pair ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     pair.forEach { c ->
-                        if (c != null) BigButton(c.name.lowercase()) { onCall(c) }
-                        else BigButton(stringResource(R.string.drive_dial), dim = true, onClick = onDial)
+                        if (c != null) BigButton(c.name.lowercase(), initial = c.name.firstOrNull()) { onCall(c) }
+                        else BigButton(stringResource(R.string.drive_dial), dim = true, icon = "phone", onClick = onDial)
                     }
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
@@ -266,8 +321,7 @@ fun DriveScreen(
             favorites.forEach { app ->
                 Image(
                     icon(app), app.label,
-                    Modifier.size(60.dp).clip(RoundedCornerShape(16.dp)).clickable { onOpen(app) },
-                    colorFilter = Grayscale,
+                    Modifier.size(64.dp).clip(RoundedCornerShape(18.dp)).background(CardColor).clickable { onOpen(app) }.padding(10.dp),
                 )
             }
         }
@@ -302,12 +356,12 @@ fun DriveScreen(
 private fun NavCard(n: Nav, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).border(1.dp, Fg, RoundedCornerShape(20.dp))
+        modifier.fillMaxWidth().clip(CardShape).background(Accent.copy(alpha = 0.16f))
             .clickable { NotificationDots.send(ctx, n.open) }.padding(18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val arrow = remember(n.icon) { n.icon?.asImageBitmap() }
-        arrow?.let { Image(it, null, Modifier.padding(end = 16.dp).size(56.dp), colorFilter = ColorFilter.tint(Fg)) }
+        arrow?.let { Image(it, null, Modifier.padding(end = 16.dp).size(56.dp), colorFilter = ColorFilter.tint(Accent)) }
         Column(Modifier.weight(1f)) {
             BasicText(n.title.ifBlank { stringResource(R.string.drive_navigating) }, style = RowText.copy(fontSize = 28.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (n.text.isNotBlank()) BasicText(n.text, Modifier.padding(top = 2.dp), style = RowText.copy(fontSize = 18.sp, color = Fg.copy(alpha = 0.8f)), maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -367,7 +421,7 @@ private fun DriveNotes() {
             }
             val ago = (System.currentTimeMillis() - m.time) / 60_000
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Fg.copy(alpha = 0.06f))
+                Modifier.fillMaxWidth().clip(CardShape).background(CardColor)
                     .clickable { NotificationDots.send(ctx, m.open) }.padding(start = 20.dp, top = 16.dp, bottom = 18.dp),
             ) {
                 Column(Modifier.weight(1f)) {
@@ -403,11 +457,11 @@ private fun DriveNotes() {
     }
 }
 
-/** Large outlined pill for a horizontal row of short actions. */
+/** Large filled pill for a horizontal row of short actions. */
 @Composable
 private fun BigPill(label: String, onClick: () -> Unit) = Box(
-    Modifier.height(64.dp).clip(RoundedCornerShape(20.dp)).border(1.dp, Fg, RoundedCornerShape(20.dp))
-        .clickable(onClick = onClick).padding(horizontal = 22.dp),
+    Modifier.height(64.dp).clip(RoundedCornerShape(50)).background(CardColor)
+        .clickable(onClick = onClick).padding(horizontal = 24.dp),
     contentAlignment = Alignment.Center,
 ) { BasicText(label, style = RowText.copy(fontSize = 18.sp), maxLines = 1) }
 
@@ -465,9 +519,17 @@ private fun DriveMusic(modifier: Modifier) {
     val state = remember(media.tick, c) { c?.playbackState }
     val playing = state?.state == PlaybackState.STATE_PLAYING
     val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
-    BoxWithConstraints(modifier.fillMaxWidth()) {
+    val art = remember(meta) {
+        meta?.run { getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: getBitmap(MediaMetadata.METADATA_KEY_ART) ?: getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON) }?.asImageBitmap()
+    }
+    BoxWithConstraints(modifier.fillMaxWidth().clip(CardShape).background(CardColor)) {
     val tight = maxHeight < 330.dp // landscape with the nav card: no room for the cover
-    Column(Modifier.fillMaxWidth().then(if (constraints.hasBoundedHeight) Modifier.fillMaxHeight() else Modifier), verticalArrangement = Arrangement.Center) {
+    // the cover, blurred and veiled, tints the card (blur needs Android 12; older ones just get the veil)
+    if (art != null && title != null) {
+        Image(art, null, Modifier.matchParentSize().blur(48.dp), contentScale = ContentScale.Crop)
+        Box(Modifier.matchParentSize().background(Bg.copy(alpha = 0.7f)))
+    }
+    Column(Modifier.fillMaxWidth().padding(22.dp).then(if (constraints.hasBoundedHeight) Modifier.fillMaxHeight() else Modifier), verticalArrangement = Arrangement.Center) {
         if (c == null || title == null) {
             BasicText(stringResource(R.string.music_nothing), style = RowText.copy(fontSize = 22.sp, color = Dim))
             // installed music players (apps that declare themselves as the music app category), last used first
@@ -519,11 +581,7 @@ private fun DriveMusic(modifier: Modifier) {
                 },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val art = remember(meta) {
-                (meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
-                    ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))?.asImageBitmap()
-            }
-            if (art != null && !tight) Image(art, null, Modifier.padding(end = 20.dp).size(92.dp).clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop, colorFilter = Grayscale)
+            if (art != null && !tight) Image(art, null, Modifier.padding(end = 20.dp).size(104.dp).clip(RoundedCornerShape(18.dp)), contentScale = ContentScale.Crop)
             Column(Modifier.weight(1f)) {
                 BasicText(title.lowercase(), Modifier.basicMarquee(), style = RowText.copy(fontSize = 30.sp), maxLines = 1)
                 val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
@@ -537,11 +595,11 @@ private fun DriveMusic(modifier: Modifier) {
             Modifier.fillMaxWidth().padding(top = 16.dp),
             horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(84.dp).clip(CircleShape).clickable { controls.skipToPrevious() }, contentAlignment = Alignment.Center) {
-                PlayerIcon("prev", Fg, Modifier.size(44.dp))
+            Box(Modifier.size(84.dp).clip(CircleShape).background(CardColor).clickable { controls.skipToPrevious() }, contentAlignment = Alignment.Center) {
+                PlayerIcon("prev", Fg, Modifier.size(40.dp))
             }
             Box(
-                Modifier.size(112.dp).clip(CircleShape).border(1.5.dp, Fg, CircleShape).combinedClickable(
+                Modifier.size(112.dp).clip(CircleShape).background(Accent).combinedClickable(
                     onLongClick = {
                         state?.let { st ->
                             val pos = if (playing) st.position + ((SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong() else st.position
@@ -551,9 +609,9 @@ private fun DriveMusic(modifier: Modifier) {
                     },
                 ) { if (playing) controls.pause() else controls.play() },
                 contentAlignment = Alignment.Center,
-            ) { PlayerIcon(if (playing) "pause" else "play", Fg, Modifier.size(52.dp)) }
-            Box(Modifier.size(84.dp).clip(CircleShape).clickable { controls.skipToNext() }, contentAlignment = Alignment.Center) {
-                PlayerIcon("next", Fg, Modifier.size(44.dp))
+            ) { PlayerIcon(if (playing) "pause" else "play", Bg, Modifier.size(52.dp)) }
+            Box(Modifier.size(84.dp).clip(CircleShape).background(CardColor).clickable { controls.skipToNext() }, contentAlignment = Alignment.Center) {
+                PlayerIcon("next", Fg, Modifier.size(40.dp))
             }
         }
     }
