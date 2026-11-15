@@ -394,10 +394,11 @@ suspend fun Context.fetchWeather(): Weather? = withContext(Dispatchers.IO) {
     if (!hasLocation()) return@withContext null
     runCatching {
         val lm = getSystemService(LocationManager::class.java)
-        val providers = lm.getProviders(true)
+        // Never wake the GPS for weather: cached fixes, or a fresh network (Wi-Fi/cell) fix. GPS is only for driving speed.
+        val providers = lm.getProviders(true) - LocationManager.GPS_PROVIDER
         var loc: Location? = providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
         if ((loc == null || System.currentTimeMillis() - loc.time > 3 * 3_600_000L) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val provider = providers.firstOrNull { it == LocationManager.NETWORK_PROVIDER } ?: providers.firstOrNull()
+            val provider = LocationManager.NETWORK_PROVIDER.takeIf { it in providers }
             if (provider != null) loc = withTimeoutOrNull(10_000) {
                 suspendCancellableCoroutine { cont -> lm.getCurrentLocation(provider, null, mainExecutor) { cont.resume(it) } }
             } ?: loc
