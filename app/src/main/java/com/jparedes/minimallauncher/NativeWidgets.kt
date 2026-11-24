@@ -182,7 +182,7 @@ internal fun PlayerIcon(kind: String, color: Color, modifier: Modifier) = Canvas
     }
 }
 
-/** The active media session (the playing one first), observed live. Shared by the music widget and driving mode. */
+/** The active media session (the playing one first), observed live. Shared by the music widget and the mini player. */
 class MediaNow(val controller: MediaController?, val tick: Int, val denied: Boolean)
 
 @Composable
@@ -293,7 +293,7 @@ fun MusicWidget(onNeedAccess: () -> Unit) {
     }
 }
 
-/** Seekable progress line with elapsed / total times; nothing when the player reports no duration. [big] = driving mode sizes. */
+/** Seekable progress line with elapsed / total times; nothing when the player reports no duration. */
 @Composable
 internal fun MediaProgress(
     c: MediaController, meta: MediaMetadata, state: PlaybackState?, playing: Boolean, tick: Int, modifier: Modifier = Modifier, big: Boolean = false,
@@ -394,7 +394,7 @@ suspend fun Context.fetchWeather(): Weather? = withContext(Dispatchers.IO) {
     if (!hasLocation()) return@withContext null
     runCatching {
         val lm = getSystemService(LocationManager::class.java)
-        // Never wake the GPS for weather: cached fixes, or a fresh network (Wi-Fi/cell) fix. GPS is only for driving speed.
+        // Never wake the GPS for weather: cached fixes, or a fresh network (Wi-Fi/cell) fix.
         val providers = lm.getProviders(true) - LocationManager.GPS_PROVIDER
         var loc: Location? = providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
         if ((loc == null || System.currentTimeMillis() - loc.time > 3 * 3_600_000L) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

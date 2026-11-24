@@ -25,55 +25,19 @@ data class Message(
     val open: PendingIntent?,
 )
 
-/** Turn-by-turn from the maps app's ongoing notification: next maneuver, street, arrival. */
-data class Nav(val title: String, val text: String, val sub: String, val icon: android.graphics.Bitmap?, val open: PendingIntent?)
-
 // Which packages have dismissable notifications (dots, • n), plus the newest chat messages for the reply card
 class NotificationDots : NotificationListenerService() {
     override fun onListenerConnected() { instance = this; refresh() }
     override fun onNotificationPosted(sbn: StatusBarNotification?) = refresh()
     override fun onNotificationRemoved(sbn: StatusBarNotification?) = refresh()
     override fun onNotificationRankingUpdate(rankingMap: RankingMap?) = refresh() // smart replies arrive here, a bit after the post
-    override fun onListenerDisconnected() { instance = null; packages.value = emptySet(); messages.value = emptyList(); notes.value = emptyList(); nav.value = null }
+    override fun onListenerDisconnected() { instance = null; packages.value = emptySet(); messages.value = emptyList() }
 
     private fun refresh() {
         val active = runCatching { activeNotifications.toList() }.getOrDefault(emptyList())
         packages.value = active.filter { it.isClearable }.map { it.packageName }.toSet()
         val ranking = currentRanking
         messages.value = active.mapNotNull { sbn -> toMessage(sbn, ranking) }.sortedByDescending { it.time }
-        // every dismissable notification (driving mode's big notifications page): chats keep their reply action
-        notes.value = active.filter { it.isClearable && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 && it.packageName != packageName && !isMedia(it) }
-            .mapNotNull { sbn -> toMessage(sbn, ranking) ?: toNote(sbn) }.sortedByDescending { it.time }
-        nav.value = active.firstOrNull { it.packageName in NAV_APPS && it.isOngoing }?.let(::toNav)
-    }
-
-    /** Players (and Samsung's "MediaOngoingActivity" copy of them): driving mode already shows the big player. */
-    private fun isMedia(sbn: StatusBarNotification): Boolean {
-        val n = sbn.notification
-        return n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION) || n.category == Notification.CATEGORY_TRANSPORT ||
-            n.extras.getString(Notification.EXTRA_TEMPLATE)?.contains("MediaStyle") == true || n.channelId == "MediaOngoingActivity"
-    }
-
-    private fun toNav(sbn: StatusBarNotification): Nav {
-        val n = sbn.notification
-        val e = n.extras
-        fun s(k: String) = e.getCharSequence(k)?.toString().orEmpty()
-        // the maneuver arrow is the large icon
-        val icon = runCatching {
-            val d = n.getLargeIcon()!!.loadDrawable(this)!!
-            val px = (56 * resources.displayMetrics.density).toInt()
-            android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888).also { d.setBounds(0, 0, px, px); d.draw(android.graphics.Canvas(it)) }
-        }.getOrNull()
-        return Nav(s(Notification.EXTRA_TITLE), s(Notification.EXTRA_TEXT), s(Notification.EXTRA_SUB_TEXT), icon, n.contentIntent)
-    }
-
-    private fun toNote(sbn: StatusBarNotification): Message? {
-        val n = sbn.notification
-        val e = n.extras
-        val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
-        val text = (e.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: e.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
-        if (title.isNullOrBlank() && text.isBlank()) return null
-        return Message(sbn.key, sbn.packageName, title.orEmpty(), text, sbn.postTime, null, emptyList(), emptyList(), n.contentIntent)
     }
 
     private fun toMessage(sbn: StatusBarNotification, rankings: RankingMap?): Message? {
@@ -101,9 +65,6 @@ class NotificationDots : NotificationListenerService() {
     companion object {
         val packages = mutableStateOf(emptySet<String>())
         val messages = mutableStateOf(emptyList<Message>())
-        val notes = mutableStateOf(emptyList<Message>()) // all dismissable notifications, newest first
-        val nav = mutableStateOf<Nav?>(null)
-        private val NAV_APPS = setOf("com.google.android.apps.maps", "com.waze")
         private var instance: NotificationDots? = null
 
         fun dismiss(m: Message) { runCatching { instance?.cancelNotification(m.key) } }

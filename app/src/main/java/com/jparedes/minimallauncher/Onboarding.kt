@@ -146,7 +146,7 @@ private fun Permissions(resumeTick: Int, onRequest: (String) -> Unit) {
     Title(stringResource(R.string.ob_perm_title))
     Body(stringResource(R.string.perm_hint), Modifier.padding(bottom = 12.dp))
     val divider = Dim.copy(alpha = 0.35f)
-    // the five that feed the home screen; the driving-mode ones live in settings
+    // the five that feed the home screen
     val why = mapOf(
         R.string.p_notifications to R.string.ob_why_notifications, R.string.p_accessibility to R.string.ob_why_accessibility,
         R.string.p_usage to R.string.ob_why_usage, R.string.p_calendar to R.string.ob_why_calendar, R.string.p_location to R.string.ob_why_location,

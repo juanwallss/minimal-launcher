@@ -3,12 +3,8 @@ package com.jparedes.minimallauncher
 import android.content.Context
 import android.content.SharedPreferences
 import android.Manifest
-import android.annotation.SuppressLint
-import android.bluetooth.BluetoothManager
 import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.graphics.SolidColor
 import android.app.AppOpsManager
 import android.content.Intent
 import android.os.Build
@@ -107,15 +103,6 @@ internal object Look {
     var showRecents by mutableStateOf(true)
     var showMessages by mutableStateOf(true)
     var showWidgets by mutableStateOf(false)
-    // driving mode
-    var carAddress by mutableStateOf<String?>(null)   // Bluetooth MAC of the car; null = no auto start
-    var carName by mutableStateOf<String?>(null)
-    var homeAddress by mutableStateOf("")
-    var workAddress by mutableStateOf("")
-    var driveContacts by mutableStateOf(emptyList<DriveContact>())
-    var quickTo by mutableStateOf<String?>(null)          // number of the drive contact that gets quick WhatsApp messages
-    var quickMsgs by mutableStateOf(emptyList<String>())  // exactly 3, or empty = the defaults in the phone's language
-    var driveReplies by mutableStateOf(emptyList<String>()) // replies offered on answerable notifications while driving; same rule
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
     var barLeft by mutableStateOf(false)   // side bar on the left edge (left-handed)
     var font by mutableIntStateOf(0)       // index in FONTS
@@ -173,23 +160,14 @@ internal object Look {
         showRecents = p.getBoolean("showRecents", true)
         showMessages = p.getBoolean("showMessages", true)
         showWidgets = p.getBoolean("showWidgets", false)
-        carAddress = p.getString("carAddress", null)
-        carName = p.getString("carName", null)
-        homeAddress = p.getString("homeAddress", "")!!
-        workAddress = p.getString("workAddress", "")!!
-        driveContacts = p.getString("driveContacts", "")!!.split("\n")
-            .mapNotNull { line -> line.split("\t").takeIf { it.size == 2 }?.let { DriveContact(it[0], it[1]) } }
-        quickTo = p.getString("quickTo", null)
-        quickMsgs = p.getString("quickMsgs", "")!!.split("\n").takeIf { it.size == 3 } ?: emptyList()
-        driveReplies = p.getString("driveReplies", "")!!.split("\n").takeIf { it.size == 3 } ?: emptyList()
         GESTURE_DEFAULTS.forEach { (g, default) -> gestures[g] = p.getString("g_$g", default)!! }
     }
 
-    /** Back to defaults: appearance, home, gestures, driving messages. Keeps favorites, hidden apps, widgets and the car/contacts/addresses. */
+    /** Back to defaults: appearance, home, gestures. Keeps favorites, hidden apps and widgets. */
     fun reset(ctx: Context) {
         val e = prefs?.edit() ?: return
         (listOf("bg", "bgDim", "bgGray", "gradFrom", "gradTo", "clockSize", "clockStyle", "textSize", "clock24", "barBottom", "barLeft", "barHaptics", "font",
-            "info", "infoOff", "theme", "showRecents", "showMessages", "showWidgets", "quickMsgs", "driveReplies") + GESTURE_DEFAULTS.keys.map { "g_$it" })
+            "info", "infoOff", "theme", "showRecents", "showMessages", "showWidgets") + GESTURE_DEFAULTS.keys.map { "g_$it" })
             .forEach { e.remove(it) }
         e.commit()
         load(ctx)
@@ -199,11 +177,6 @@ internal object Look {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray).putInt("gradFrom", gradFrom).putInt("gradTo", gradTo)
             .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putBoolean("onboarded", onboarded).putString("infoOff", (INFO_ALL - info).joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
-            .putString("carAddress", carAddress).putString("carName", carName)
-            .putString("homeAddress", homeAddress).putString("workAddress", workAddress)
-            .putString("driveContacts", driveContacts.joinToString("\n") { "${it.name}\t${it.number}" })
-            .putString("quickTo", quickTo).putString("quickMsgs", quickMsgs.joinToString("\n"))
-            .putString("driveReplies", driveReplies.joinToString("\n"))
         gestures.forEach { (g, action) -> e.putString("g_$g", action) }
         e.apply()
     }
@@ -248,7 +221,7 @@ private fun ThemeChoice(label: String, key: String, swatch: Color?, set: (() -> 
     }
 }
 
-private enum class SettingsPage { APPEARANCE, HOME, GESTURES, DRIVE, PERMISSIONS }
+private enum class SettingsPage { APPEARANCE, HOME, GESTURES, PERMISSIONS }
 
 /**
  * Full-screen settings, opened by long-pressing the time. Opaque (the wallpaper never shows behind it):
@@ -259,8 +232,6 @@ fun SettingsScreen(
     onPickPhoto: () -> Unit,
     onBackgroundChanged: () -> Unit,
     apps: List<App>,
-    onAskBluetooth: () -> Unit,
-    onPickContact: () -> Unit,
     background: ImageBitmap?,
     resumeTick: Int,          // bumps when the launcher resumes, so permission states re-read after visiting Settings
     onClose: () -> Unit,
@@ -321,7 +292,6 @@ fun SettingsScreen(
                         SettingsPage.APPEARANCE -> AppearancePage(::set, onPickPhoto, onBackgroundChanged, background)
                         SettingsPage.HOME -> HomePage(::set)
                         SettingsPage.GESTURES -> GesturesPage(::set, apps) { pickingAppFor = it }
-                        SettingsPage.DRIVE -> DriveSettings(set = ::set, onAskBluetooth = onAskBluetooth, onPickContact = onPickContact, onClose = onClose)
                         SettingsPage.PERMISSIONS -> PermissionsPage(resumeTick)
                     }
                 }
@@ -334,13 +304,12 @@ private val SettingsPage.title get() = when (this) {
     SettingsPage.APPEARANCE -> R.string.cat_appearance
     SettingsPage.HOME -> R.string.cat_home
     SettingsPage.GESTURES -> R.string.g_title
-    SettingsPage.DRIVE -> R.string.s_drive
     SettingsPage.PERMISSIONS -> R.string.cat_permissions
 }
 
 private val GESTURE_ACTIONS = listOf(
     "none" to R.string.g_none, "lock" to R.string.g_lock, "notifications" to R.string.g_notifications,
-    "search" to R.string.g_search, "camera" to R.string.g_camera, "torch" to R.string.g_torch, "drive" to R.string.g_drive,
+    "search" to R.string.g_search, "camera" to R.string.g_camera, "torch" to R.string.g_torch,
 )
 private val GESTURE_NAMES = mapOf(
     "double" to R.string.g_double, "up" to R.string.g_up, "down" to R.string.g_down,
@@ -370,10 +339,6 @@ private fun Categories(apps: List<App>, resumeTick: Int, open: (SettingsPage) ->
         SettingsPage.GESTURES to listOf("double", "up", "down").map { g -> // map is inline, so composable calls are fine here
             stringResource(GESTURE_NAMES.getValue(g)) + ": " + actionLabel(Look.gestures[g] ?: "none", apps)
         }.joinToString("  ·  "),
-        SettingsPage.DRIVE to listOf(
-            Look.carName?.lowercase() ?: stringResource(R.string.s_no_car),
-            stringResource(R.string.s_contacts_count, Look.driveContacts.size),
-        ).joinToString("  ·  "),
         SettingsPage.PERMISSIONS to stringResource(R.string.perm_summary, perms.count { it.on }, perms.size),
     )
     val divider = Dim.copy(alpha = 0.35f)
@@ -549,7 +514,7 @@ internal class PermissionState(val label: Int, val on: Boolean, val open: Intent
 @Composable
 internal fun permissionStates(resumeTick: Int): List<PermissionState> {
     val ctx = LocalContext.current
-    return remember(resumeTick, Drive.permTick) {
+    return remember(resumeTick) {
         fun granted(p: String) = ctx.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
         val appDetails = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${ctx.packageName}"))
         val listeners = android.provider.Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners") ?: ""
@@ -559,8 +524,6 @@ internal fun permissionStates(resumeTick: Int): List<PermissionState> {
             PermissionState(R.string.p_usage, ctx.hasUsageAccess(), Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)),
             PermissionState(R.string.p_calendar, granted(Manifest.permission.READ_CALENDAR), appDetails),
             PermissionState(R.string.p_location, granted(Manifest.permission.ACCESS_COARSE_LOCATION), appDetails),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PermissionState(R.string.p_nearby, granted(Manifest.permission.BLUETOOTH_CONNECT), appDetails) else null,
-            PermissionState(R.string.p_calls, granted(Manifest.permission.CALL_PHONE), appDetails),
         )
     }
 }
@@ -666,67 +629,4 @@ fun Context.hasUsageAccess(): Boolean {
         @Suppress("DEPRECATION") ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
     }
     return mode == AppOpsManager.MODE_ALLOWED
-}
-
-/** Car (auto start), favorite contacts, and a manual "start now". */
-@SuppressLint("MissingPermission") // bonded devices are only read after BLUETOOTH_CONNECT is granted
-@Composable
-private fun DriveSettings(set: (() -> Unit) -> Unit, onAskBluetooth: () -> Unit, onPickContact: () -> Unit, onClose: () -> Unit) {
-    val ctx = LocalContext.current
-    Section(stringResource(R.string.s_car)) {
-        val granted = Drive.permTick >= 0 && (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)
-        if (!granted) {
-            Choice(stringResource(R.string.s_car_pick), false, onClick = onAskBluetooth)
-        } else {
-            val bonded = remember(Drive.permTick) {
-                runCatching { ctx.getSystemService(BluetoothManager::class.java).adapter.bondedDevices.toList() }.getOrDefault(emptyList())
-            }
-            Choice(stringResource(R.string.s_bg_none), Look.carAddress == null) { set { Look.carAddress = null; Look.carName = null } }
-            bonded.forEach { d ->
-                val name = runCatching { d.name }.getOrNull() ?: d.address
-                Choice(name.lowercase(), Look.carAddress == d.address) { set { Look.carAddress = d.address; Look.carName = name } }
-            }
-        }
-    }
-    Section(stringResource(R.string.s_contacts)) {
-        Look.driveContacts.forEach { c -> Choice("${c.name.lowercase()}  ×", true) { set { Look.driveContacts = Look.driveContacts - c } } }
-        if (Look.driveContacts.size < 4) Choice(stringResource(R.string.s_add_contact), false, onClick = onPickContact)
-    }
-    if (Look.driveContacts.isNotEmpty()) Section(stringResource(R.string.s_quick)) {
-        Choice(stringResource(R.string.s_bg_none), Look.driveContacts.none { it.number == Look.quickTo }) { set { Look.quickTo = null } }
-        Look.driveContacts.forEach { c -> Choice(c.name.lowercase(), Look.quickTo == c.number) { set { Look.quickTo = c.number } } }
-    }
-    if (Look.driveContacts.any { it.number == Look.quickTo }) {
-        val msgs = quickMessages()
-        msgs.forEachIndexed { i, m ->
-            AddressField(stringResource(R.string.s_quick_msg, i + 1), m, hint = "") { v -> set { Look.quickMsgs = msgs.toMutableList().also { it[i] = v.replace("\n", " ") } } }
-        }
-    }
-    // replies on answerable notifications (driving mode's notifications page); a blank one is not shown
-    Column(Modifier.padding(top = 30.dp)) { SectionLabel(stringResource(R.string.s_replies)) }
-    val replies = driveReplies()
-    replies.forEachIndexed { i, r ->
-        AddressField(stringResource(R.string.s_quick_msg, i + 1), r, hint = "") { v -> set { Look.driveReplies = replies.toMutableList().also { it[i] = v.replace("\n", " ") } } }
-    }
-    Section(stringResource(R.string.s_drive_now)) {
-        Choice(stringResource(R.string.s_try), Drive.active) { Drive.set(ctx, true); onClose() }
-    }
-}
-
-@Composable
-private fun AddressField(label: String, value: String, hint: String = stringResource(R.string.s_addr_hint), onChange: (String) -> Unit) {
-    Column(Modifier.padding(top = 30.dp)) {
-        BasicText(label, style = SmallText.copy(fontSize = 13.sp))
-        BasicTextField(
-            value, onChange,
-            Modifier.fillMaxWidth().padding(top = 8.dp),
-            textStyle = RowText.copy(fontSize = 19.sp),
-            cursorBrush = SolidColor(Fg),
-            singleLine = true,
-            decorationBox = { inner ->
-                Box { if (value.isEmpty()) BasicText(hint, style = RowText.copy(fontSize = 19.sp, color = Dim)); inner() }
-            },
-        )
-    }
 }

@@ -55,7 +55,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.Spacer
-import android.provider.ContactsContract
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -355,66 +354,13 @@ class MainActivity : ComponentActivity() {
                     listOf("Nothing much", "Not much, you?", "How are you?"), null),
                 Message("test2", packageName, "x", "", 0, null, emptyList(), emptyList(), null),
             )
-            // and on driving mode's notifications page
-            NotificationDots.notes.value = NotificationDots.messages.value.take(1) + NotificationDots.notes.value.filter { it.pkg != packageName }
         }
-        // debug: --ez nav_test true|false fakes the maps app's turn-by-turn card in driving mode
-        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("nav_test"))
-            NotificationDots.nav.value = if (!intent.getBooleanExtra("nav_test", false)) null else
-                Nav("300 m · turn right", "Av. Reforma", "12 min · 4.2 km · arrive 18:42", null, null)
-        // debug: --ez drive true|false switches driving mode
-        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("drive"))
-            Drive.set(this, intent.getBooleanExtra("drive", false))
-        // debug: --ez drive_ask true|false shows the "car connected · driving mode?" card
-        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent.hasExtra("drive_ask"))
-            Drive.setAsk(this, intent.getBooleanExtra("drive_ask", false))
     }
     private var weatherTestCode by mutableStateOf<Int?>(null)
     private var moonTestPhase by mutableStateOf<Float?>(null) // debug: --ef moon <0..1> forces night + that phase
 
-    // --- Driving mode helpers
-    private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { Drive.permTick++ }
-
-    /** Contact picker on phone numbers: the returned row is readable without READ_CONTACTS. */
-    private val pickPhone = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val uri = result.data?.data ?: return@registerForActivityResult
-        runCatching {
-            contentResolver.query(uri, arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, null)
-                ?.use { c -> if (c.moveToFirst()) DriveContact(c.getString(0) ?: c.getString(1), c.getString(1)) else null }
-        }.getOrNull()?.let { contact ->
-            Look.driveContacts = (Look.driveContacts.filter { it.number != contact.number } + contact).take(4)
-            Look.save()
-        }
-    }
-
-    private var pendingCall: String? = null
-    private val askCall = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        pendingCall?.let { number -> safeStart(Intent(if (granted) Intent.ACTION_CALL else Intent.ACTION_DIAL, Uri.parse("tel:$number"))) }
-        pendingCall = null
-    }
-
-    /** Calls straight away once CALL_PHONE is granted (asked the first time); otherwise opens the dialer with the number. */
-    private fun call(number: String) {
-        if (checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
-            safeStart(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")))
-        } else {
-            pendingCall = number
-            askCall.launch(Manifest.permission.CALL_PHONE)
-        }
-    }
-
-    /** Turn-by-turn in Google Maps when available, otherwise whatever maps app handles geo: (e.g. Waze). */
-    private fun navigate(address: String?) {
-        val q = Uri.encode(address ?: "")
-        val turnByTurn = address != null && runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$q")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }.isSuccess
-        if (!turnByTurn) safeStart(Intent(Intent.ACTION_VIEW, Uri.parse(if (address == null) "geo:0,0" else "geo:0,0?q=$q")))
-    }
-
     private var weather by mutableStateOf<Weather?>(null)
     private var weatherLoading by mutableStateOf(false)
-    private val askFine = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { resumes++ } // driving speed
     private val askLocation = registerForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) refreshWeather(force = true) }
 
     private fun savePages(list: List<String>) {
@@ -608,7 +554,6 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         Look.load(this)
-        Drive.load(this)
         launcherApps.registerCallback(packageWatcher)
         runCatching { cameraManager.registerTorchCallback(torchCallback, null) }
         applyWindowBackground()
@@ -659,23 +604,9 @@ class MainActivity : ComponentActivity() {
                 onPickPhoto = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onBackgroundChanged = ::applyWindowBackground,
                 apps = apps,
-                onAskBluetooth = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) askBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
-                },
-                onPickContact = { runCatching { pickPhone.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)) } },
                 background = bgImage,
                 resumeTick = resumes,
                 onClose = { settingsOpen = false },
-            ) else if (Drive.active) DriveScreen(
-                contacts = Look.driveContacts,
-                quickTo = Look.driveContacts.firstOrNull { it.number == Look.quickTo },
-                weather = weather?.let { w -> "${w.temp}°C" + (w.place?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "") },
-                speedAllowed = resumes >= 0 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED,
-                onAskSpeed = { askFine.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
-                onOpenMap = { navigate(null) },
-                onCall = { call(it.number) },
-                onDial = { safeStart(Intent(Intent.ACTION_DIAL)) },
-                onExit = { Drive.set(this@MainActivity, false) },
             ) else {
             // Pieces shared by the portrait (one column) and landscape (two panes) layouts
             val listPane: @Composable (Modifier) -> Unit = { m ->
@@ -730,18 +661,6 @@ class MainActivity : ComponentActivity() {
                     }
             }
             val messageCard: @Composable () -> Unit = {
-                    // car Bluetooth connected: ask before switching to driving mode
-                    AnimatedVisibility(
-                        clean && Drive.ask,
-                        enter = expandVertically(tween(320, easing = FastOutSlowInEasing)) + fadeIn(tween(260, delayMillis = 80)),
-                        exit = fadeOut(tween(160)) + shrinkVertically(tween(240, delayMillis = 60)),
-                    ) {
-                        DriveAsk(
-                            onYes = { Drive.set(this@MainActivity, true) },
-                            onNo = { Drive.setAsk(this@MainActivity, false) },
-                            modifier = Modifier.padding(bottom = 12.dp),
-                        )
-                    }
                     // newest chat notification, answerable in place; only on the clean home view
                     val msgs = NotificationDots.messages.value
                     // appears: room opens, card drops in and settles; a newer chat pushes the old card up and out
@@ -849,7 +768,6 @@ class MainActivity : ComponentActivity() {
         }
         hidden = prefs.getStringSet("hidden", emptySet())!!.toSet()
         if (appsDirty) reloadApps()
-        Drive.load(this) // the car receiver may have switched it while we were in the background
         // Ordered list; first run migrates the old unordered set alphabetically
         favorites = prefs.getString("favOrder", null)?.split("\n")?.filter { it.isNotEmpty() }
             ?: prefs.getStringSet("favorites", emptySet())!!.sortedBy { id -> apps.find { it.id == id }?.label?.lowercase() ?: id }
@@ -894,7 +812,6 @@ class MainActivity : ComponentActivity() {
             action == "lock" -> lockScreen()
             action == "notifications" -> expandNotifications()
             action == "search" -> query = ""
-            action == "drive" -> Drive.set(this, true)
             action == "camera" -> safeStart(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA))
             action == "torch" -> toggleTorch()
             action.startsWith("app:") -> action.removePrefix("app:").split("/").let { (pkg, cls) ->
