@@ -561,6 +561,7 @@ class MainActivity : ComponentActivity() {
             bgImage = withContext(Dispatchers.IO) { BitmapFactory.decodeFile(bgFile.path)?.also { Look.photoAccent = photoAccent(it) }?.asImageBitmap() }
         }
         setContent {
+            LaunchedEffect(Look.hideStatusBar) { applyStatusBar() }
             BackHandler { // home screen never exits
                 when {
                     settingsOpen -> settingsOpen = false
@@ -758,14 +759,16 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    /** Status bar (time, battery, wifi) hidden by choice; swiping from the top edge shows it briefly. */
+    private fun applyStatusBar() = WindowCompat.getInsetsController(window, window.decorView).run {
+        systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (Look.hideStatusBar) hide(WindowInsetsCompat.Type.statusBars()) else show(WindowInsetsCompat.Type.statusBars())
+    }
+
     override fun onResume() {
         super.onResume()
         resetView() // pressing Home always lands on the clean clock view
-        // Hide the status bar (time, battery, wifi); swiping from the top edge shows it briefly
-        WindowCompat.getInsetsController(window, window.decorView).run {
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            hide(WindowInsetsCompat.Type.statusBars())
-        }
+        applyStatusBar()
         hidden = prefs.getStringSet("hidden", emptySet())!!.toSet()
         if (appsDirty) reloadApps()
         // Ordered list; first run migrates the old unordered set alphabetically

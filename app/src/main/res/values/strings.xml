@@ -67,6 +67,8 @@
     <string name="s_medium">medium</string>
     <string name="s_large">large</string>
     <string name="s_format">time format</string>
+    <string name="s_show_on_home">show on home</string>
+    <string name="s_status_bar">status bar</string>
     <string name="s_done">done</string>
     <string name="g_title">gestures</string>
     <string name="g_double">double tap</string>

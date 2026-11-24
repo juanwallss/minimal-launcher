@@ -103,6 +103,7 @@ internal object Look {
     var showRecents by mutableStateOf(true)
     var showMessages by mutableStateOf(true)
     var showWidgets by mutableStateOf(false)
+    var hideStatusBar by mutableStateOf(true)
     var barBottom by mutableStateOf(false) // letter bar: right edge (false) or above the favorites (true)
     var barLeft by mutableStateOf(false)   // side bar on the left edge (left-handed)
     var font by mutableIntStateOf(0)       // index in FONTS
@@ -160,6 +161,7 @@ internal object Look {
         showRecents = p.getBoolean("showRecents", true)
         showMessages = p.getBoolean("showMessages", true)
         showWidgets = p.getBoolean("showWidgets", false)
+        hideStatusBar = p.getBoolean("hideStatusBar", true)
         GESTURE_DEFAULTS.forEach { (g, default) -> gestures[g] = p.getString("g_$g", default)!! }
     }
 
@@ -167,7 +169,7 @@ internal object Look {
     fun reset(ctx: Context) {
         val e = prefs?.edit() ?: return
         (listOf("bg", "bgDim", "bgGray", "gradFrom", "gradTo", "clockSize", "clockStyle", "textSize", "clock24", "barBottom", "barLeft", "barHaptics", "font",
-            "info", "infoOff", "theme", "showRecents", "showMessages", "showWidgets") + GESTURE_DEFAULTS.keys.map { "g_$it" })
+            "info", "infoOff", "theme", "showRecents", "showMessages", "showWidgets", "hideStatusBar") + GESTURE_DEFAULTS.keys.map { "g_$it" })
             .forEach { e.remove(it) }
         e.commit()
         load(ctx)
@@ -176,7 +178,7 @@ internal object Look {
     fun save() {
         val e = prefs?.edit() ?: return
         e.putString("bg", background).putInt("bgDim", dim).putBoolean("bgGray", gray).putInt("gradFrom", gradFrom).putInt("gradTo", gradTo)
-            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putBoolean("onboarded", onboarded).putString("infoOff", (INFO_ALL - info).joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets)
+            .putInt("clockSize", clockSize).putInt("clockStyle", clockStyle).putInt("textSize", textSize).putBoolean("clock24", clock24).putBoolean("barBottom", barBottom).putBoolean("barLeft", barLeft).putInt("barHaptics", barHaptics).putInt("font", font).putBoolean("onboarded", onboarded).putString("infoOff", (INFO_ALL - info).joinToString(",")).putString("theme", theme).putBoolean("showRecents", showRecents).putBoolean("showMessages", showMessages).putBoolean("showWidgets", showWidgets).putBoolean("hideStatusBar", hideStatusBar)
         gestures.forEach { (g, action) -> e.putString("g_$g", action) }
         e.apply()
     }
@@ -185,29 +187,79 @@ internal object Look {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Section(title: String, content: @Composable FlowRowScope.() -> Unit) {
-    Column(Modifier.padding(top = 30.dp)) {
+    Column(Modifier.padding(top = 28.dp)) {
         SectionLabel(title)
         FlowRow(
-            Modifier.padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(22.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) { content() }
     }
 }
 
-@Composable
-private fun SectionLabel(title: String) = BasicText(title, style = SmallText.copy(fontSize = 12.sp, letterSpacing = 1.5.sp))
+private val CardShape = RoundedCornerShape(20.dp)
 
-/** Text option; the chosen one is bright with a thin underline. */
+/** Rounded, faintly filled group; hairlines between its rows. */
 @Composable
-private fun Choice(label: String, selected: Boolean, family: FontFamily? = null, onClick: () -> Unit) {
-    val line = Accent
-    BasicText(
-        label,
-        Modifier.clickable(interactionSource = null, indication = null, onClick = onClick).padding(vertical = 4.dp)
-            .drawBehind { if (selected) drawLine(line, Offset(0f, size.height + 2.dp.toPx()), Offset(size.width, size.height + 2.dp.toPx()), 1.dp.toPx()) },
-        style = RowText.copy(fontSize = 19.sp, color = if (selected) Fg else Dim).let { if (family != null) it.copy(fontFamily = family) else it },
-    )
+private fun Card(modifier: Modifier = Modifier, rows: List<@Composable () -> Unit>) {
+    val divider = Dim.copy(alpha = 0.25f)
+    Column(modifier.fillMaxWidth().clip(CardShape).background(Fg.copy(alpha = 0.045f))) {
+        rows.forEachIndexed { i, row ->
+            if (i > 0) Box(Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(0.5.dp).background(divider))
+            row()
+        }
+    }
+}
+
+/** On/off row with a thin drawn switch. */
+@Composable
+private fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    val accent = Accent
+    val bg = Bg
+    val dim = Dim
+    val t by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, tween(180), label = "toggle")
+    Row(
+        Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null) { onChange(!on) }.padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicText(label, Modifier.weight(1f), style = RowText.copy(fontSize = 18.sp))
+        Canvas(Modifier.size(44.dp, 26.dp)) {
+            val r = size.height / 2
+            if (t > 0f) drawRoundRect(accent.copy(alpha = t), cornerRadius = androidx.compose.ui.geometry.CornerRadius(r))
+            drawRoundRect(dim.copy(alpha = 0.6f * (1 - t)), cornerRadius = androidx.compose.ui.geometry.CornerRadius(r), style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+            val knob = r - 4.dp.toPx()
+            drawCircle(if (t > 0.5f) bg else dim, knob, Offset(r + (size.width - 2 * r) * t, r))
+        }
+    }
+}
+
+/** Row that opens something: label, current value, chevron. */
+@Composable
+private fun LinkRow(label: String, value: String, onClick: () -> Unit) = Row(
+    Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null, onClick = onClick).padding(horizontal = 20.dp, vertical = 16.dp),
+    verticalAlignment = Alignment.CenterVertically,
+) {
+    BasicText(label, Modifier.weight(1f), style = RowText.copy(fontSize = 18.sp))
+    BasicText(value, style = SmallText.copy(fontSize = 14.sp))
+    BasicText("›", Modifier.padding(start = 10.dp), style = RowText.copy(fontSize = 22.sp, color = Dim))
+}
+
+@Composable
+private fun SectionLabel(title: String) = BasicText(title.uppercase(), Modifier.padding(start = 4.dp), style = SmallText.copy(fontSize = 11.sp, letterSpacing = 1.8.sp))
+
+/** Pill option: outlined; the chosen one is filled with the accent tint. */
+@Composable
+private fun Choice(label: String, selected: Boolean, family: FontFamily? = null, leading: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
+    val shape = CircleShape
+    Row(
+        Modifier.clip(shape)
+            .then(if (selected) Modifier.background(Accent.copy(alpha = 0.12f)) else Modifier.border(0.5.dp, Dim.copy(alpha = 0.4f), shape))
+            .clickable(interactionSource = null, indication = null, onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        leading?.let { Box(Modifier.padding(end = 8.dp)) { it() } }
+        BasicText(label, style = RowText.copy(fontSize = 16.sp, color = if (selected) Fg else Dim).let { if (family != null) it.copy(fontFamily = family) else it })
+    }
 }
 
 /** A theme option: small color dot + name. The wallpaper one shows the color it picked once chosen. */
@@ -215,10 +267,7 @@ private fun Choice(label: String, selected: Boolean, family: FontFamily? = null,
 private fun ThemeChoice(label: String, key: String, swatch: Color?, set: (() -> Unit) -> Unit) {
     val on = Look.theme == key
     val dot = swatch ?: if (on) Accent else null
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        if (dot != null) Box(Modifier.padding(end = 8.dp).size(9.dp).background(dot, CircleShape))
-        Choice(label, on) { set { Look.theme = key } }
-    }
+    Choice(label, on, leading = dot?.let { { Box(Modifier.size(9.dp).background(it, CircleShape)) } }) { set { Look.theme = key } }
 }
 
 private enum class SettingsPage { APPEARANCE, HOME, GESTURES, PERMISSIONS }
@@ -263,31 +312,37 @@ fun SettingsScreen(
                     .padding(start = 36.dp, end = 28.dp, top = 48.dp, bottom = 48.dp).widthIn(max = 620.dp)
             ) {
                 if (p == null) {
-                    BasicText(stringResource(R.string.s_title), Modifier.padding(bottom = 28.dp), style = RowText.copy(fontSize = 44.sp, fontWeight = FontWeight.Thin))
+                    Row(Modifier.fillMaxWidth().padding(bottom = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+                        BasicText(stringResource(R.string.s_title), Modifier.weight(1f), style = RowText.copy(fontSize = 44.sp, fontWeight = FontWeight.Thin))
+                        BasicText(
+                            stringResource(R.string.s_done),
+                            Modifier.clip(CircleShape).background(Fg.copy(alpha = 0.07f))
+                                .clickable(interactionSource = null, indication = null, onClick = onClose).padding(horizontal = 18.dp, vertical = 9.dp),
+                            style = RowText.copy(fontSize = 16.sp),
+                        )
+                    }
                     Categories(apps, resumeTick) { page = it }
-                    BasicText(
-                        stringResource(R.string.s_done),
-                        Modifier.padding(top = 40.dp).clickable(interactionSource = null, indication = null, onClick = onClose).padding(vertical = 6.dp),
-                        style = RowText.copy(fontSize = 19.sp),
-                    )
                     // two taps: the first one asks, the second resets
                     var confirm by remember { mutableStateOf(false) }
                     LaunchedEffect(confirm) { if (confirm) { delay(3000); confirm = false } }
                     BasicText(
                         stringResource(if (confirm) R.string.s_reset_confirm else R.string.s_reset),
-                        Modifier.padding(top = 28.dp).clickable(interactionSource = null, indication = null) {
+                        Modifier.padding(top = 32.dp, start = 4.dp).clickable(interactionSource = null, indication = null) {
                             if (confirm) { Look.reset(ctx); onBackgroundChanged(); confirm = false } else confirm = true
                         }.padding(vertical = 6.dp),
                         style = SmallText.copy(color = if (confirm) Fg else Dim),
                     )
                 } else {
                     // ‹ settings  /  page title
-                    BasicText(
-                        "‹  " + stringResource(R.string.s_title),
-                        Modifier.clickable(interactionSource = null, indication = null) { page = null }.padding(vertical = 6.dp),
-                        style = SmallText,
-                    )
-                    BasicText(stringResource(p.title), Modifier.padding(top = 10.dp, bottom = 8.dp), style = RowText.copy(fontSize = 38.sp, fontWeight = FontWeight.Thin))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BasicText(
+                            "‹",
+                            Modifier.clip(CircleShape).clickable(interactionSource = null, indication = null) { page = null }
+                                .padding(end = 14.dp, top = 2.dp, bottom = 6.dp),
+                            style = RowText.copy(fontSize = 34.sp, fontWeight = FontWeight.Thin),
+                        )
+                        BasicText(stringResource(p.title), style = RowText.copy(fontSize = 34.sp, fontWeight = FontWeight.Thin))
+                    }
                     when (p) {
                         SettingsPage.APPEARANCE -> AppearancePage(::set, onPickPhoto, onBackgroundChanged, background)
                         SettingsPage.HOME -> HomePage(::set)
@@ -341,20 +396,20 @@ private fun Categories(apps: List<App>, resumeTick: Int, open: (SettingsPage) ->
         }.joinToString("  ·  "),
         SettingsPage.PERMISSIONS to stringResource(R.string.perm_summary, perms.count { it.on }, perms.size),
     )
-    val divider = Dim.copy(alpha = 0.35f)
-    rows.forEachIndexed { i, (page, summary) ->
-        if (i > 0) Box(Modifier.fillMaxWidth().height(0.5.dp).background(divider))
-        Row(
-            Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null) { open(page) }.padding(vertical = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                BasicText(stringResource(page.title), style = RowText.copy(fontSize = 23.sp))
-                BasicText(summary, Modifier.padding(top = 4.dp), style = SmallText.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Card(rows = rows.map { (page, summary) ->
+        {
+            Row(
+                Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null) { open(page) }.padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    BasicText(stringResource(page.title), style = RowText.copy(fontSize = 21.sp))
+                    BasicText(summary, Modifier.padding(top = 4.dp), style = SmallText.copy(fontSize = 13.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                BasicText("›", Modifier.padding(start = 12.dp), style = RowText.copy(fontSize = 24.sp, color = Dim))
             }
-            BasicText("›", Modifier.padding(start = 12.dp), style = RowText.copy(fontSize = 26.sp, color = Dim))
         }
-    }
+    })
 }
 
 @Composable
@@ -372,24 +427,19 @@ private fun AppearancePage(set: (() -> Unit) -> Unit, onPickPhoto: () -> Unit, o
         Section(stringResource(R.string.s_gradient)) {
             val names = mapOf("dusk" to R.string.gr_dusk, "ocean" to R.string.gr_ocean, "forest" to R.string.gr_forest, "ember" to R.string.gr_ember, "aurora" to R.string.gr_aurora)
             Look.GRADIENTS.forEach { (key, hues) ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.padding(end = 8.dp).size(9.dp).background(gradientBrush(hues.first, hues.second), CircleShape))
-                    Choice(stringResource(names.getValue(key)), Look.gradFrom to Look.gradTo == hues) { set { Look.gradFrom = hues.first; Look.gradTo = hues.second } }
-                }
+                Choice(stringResource(names.getValue(key)), Look.gradFrom to Look.gradTo == hues,
+                    leading = { Box(Modifier.size(9.dp).background(gradientBrush(hues.first, hues.second), CircleShape)) }) { set { Look.gradFrom = hues.first; Look.gradTo = hues.second } }
             }
         }
         // custom: drag either end's hue
         HueSlider(Look.gradFrom) { Look.gradFrom = it }
         HueSlider(Look.gradTo) { Look.gradTo = it }
     }
-    if (Look.veiled) Column(Modifier.padding(top = 30.dp)) {
+    if (Look.veiled) Column(Modifier.padding(top = 28.dp)) {
         SectionLabel(stringResource(R.string.s_dim))
         DimSlider()
     }
-    if (Look.background == Look.BG_PHOTO) Section(stringResource(R.string.s_gray)) {
-        Choice(stringResource(R.string.s_on), Look.gray) { set { Look.gray = true } }
-        Choice(stringResource(R.string.s_off), !Look.gray) { set { Look.gray = false } }
-    }
+    if (Look.background == Look.BG_PHOTO) Card(Modifier.padding(top = 20.dp), rows = listOf { Toggle(stringResource(R.string.s_gray), Look.gray) { v -> set { Look.gray = v } } })
     Section(stringResource(R.string.s_clock_style)) {
         ClockStyle.entries.forEach { st -> Choice(stringResource(st.label), Look.clockStyle == st.ordinal) { set { Look.clockStyle = st.ordinal } } }
     }
@@ -455,6 +505,23 @@ private fun Preview(background: ImageBitmap?) {
 
 @Composable
 private fun HomePage(set: (() -> Unit) -> Unit) {
+    val ctx = LocalContext.current
+    Column(Modifier.padding(top = 20.dp)) {
+        SectionLabel(stringResource(R.string.s_show_on_home))
+        Card(Modifier.padding(top = 12.dp), rows = listOf(
+            { Toggle(stringResource(R.string.s_recents), Look.showRecents) { v -> set { Look.showRecents = v } } },
+            // widget pages under the clock (hidden by default; the music player at the bottom covers the common case)
+            { Toggle(stringResource(R.string.s_widgets), Look.showWidgets) { v -> set { Look.showWidgets = v } } },
+            // newest chat on the home view, answerable in place (needs notification access)
+            { Toggle(stringResource(R.string.s_messages), Look.showMessages) { v -> set { Look.showMessages = v } } },
+            // off = Android's status bar (time, battery, wifi) stays visible on the home screen
+            { Toggle(stringResource(R.string.s_status_bar), !Look.hideStatusBar) { v -> set { Look.hideStatusBar = !v } } },
+            // optional: with usage access the recents row also sees apps opened from notifications / links
+            { LinkRow(stringResource(R.string.p_usage), stringResource(if (ctx.hasUsageAccess()) R.string.state_on else R.string.state_off)) {
+                runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            } },
+        ))
+    }
     Section(stringResource(R.string.s_bar)) {
         Choice(stringResource(R.string.s_bar_side), !Look.barBottom && !Look.barLeft) { set { Look.barBottom = false; Look.barLeft = false } }
         Choice(stringResource(R.string.s_bar_left), !Look.barBottom && Look.barLeft) { set { Look.barBottom = false; Look.barLeft = true } }
@@ -474,25 +541,6 @@ private fun HomePage(set: (() -> Unit) -> Unit) {
             Look.INFO_BATTERY to R.string.i_battery, Look.INFO_ALARM to R.string.i_alarm, Look.INFO_EVENT to R.string.i_event, Look.INFO_NOTIF to R.string.i_notif)
         // each one toggles on its own
         Look.INFO_ALL.forEach { k -> Choice(stringResource(names.getValue(k)), k in Look.info) { set { Look.info = if (k in Look.info) Look.info - k else Look.info + k } } }
-    }
-    Section(stringResource(R.string.s_recents)) {
-        val ctx = LocalContext.current
-        Choice(stringResource(R.string.show), Look.showRecents) { set { Look.showRecents = true } }
-        Choice(stringResource(R.string.hide), !Look.showRecents) { set { Look.showRecents = false } }
-        // optional: with usage access the row also sees apps opened from notifications / links
-        Choice(stringResource(R.string.s_usage), ctx.hasUsageAccess()) {
-            runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        }
-    }
-    // newest chat on the home view, answerable in place (needs notification access)
-    // widget pages under the clock (hidden by default; the music player at the bottom covers the common case)
-    Section(stringResource(R.string.s_widgets)) {
-        Choice(stringResource(R.string.show), Look.showWidgets) { set { Look.showWidgets = true } }
-        Choice(stringResource(R.string.hide), !Look.showWidgets) { set { Look.showWidgets = false } }
-    }
-    Section(stringResource(R.string.s_messages)) {
-        Choice(stringResource(R.string.show), Look.showMessages) { set { Look.showMessages = true } }
-        Choice(stringResource(R.string.hide), !Look.showMessages) { set { Look.showMessages = false } }
     }
 }
 
@@ -532,19 +580,11 @@ internal fun permissionStates(resumeTick: Int): List<PermissionState> {
 private fun PermissionsPage(resumeTick: Int) {
     val ctx = LocalContext.current
     BasicText(stringResource(R.string.perm_hint), Modifier.padding(top = 4.dp, bottom = 12.dp), style = SmallText.copy(fontSize = 13.sp))
-    val divider = Dim.copy(alpha = 0.35f)
-    permissionStates(resumeTick).forEachIndexed { i, p ->
-        if (i > 0) Box(Modifier.fillMaxWidth().height(0.5.dp).background(divider))
-        Row(
-            Modifier.fillMaxWidth().clickable(interactionSource = null, indication = null) {
-                runCatching { ctx.startActivity(p.open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-            }.padding(vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicText(stringResource(p.label), Modifier.weight(1f), style = RowText.copy(fontSize = 18.sp))
-            BasicText(stringResource(if (p.on) R.string.state_on else R.string.state_off), style = SmallText.copy(color = if (p.on) Fg else Dim))
-        }
-    }
+    Card(rows = permissionStates(resumeTick).map { p ->
+        { LinkRow(stringResource(p.label), stringResource(if (p.on) R.string.state_on else R.string.state_off)) {
+            runCatching { ctx.startActivity(p.open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        } }
+    })
 }
 
 /** Pick the app a gesture opens. */
