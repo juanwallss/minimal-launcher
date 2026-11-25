@@ -102,3 +102,12 @@ the keystore lives outside the repo (`~/.android-keystores/`). **Never commit ei
 `versionName` in `app/build.gradle.kts`, then a GitHub release `vX.Y.Z` with `minimal-X.Y.Z.apk` attached
 (repo `juanwallss/minimal-launcher`, private; use that account's token: `GH_TOKEN=$(gh auth token --user juanwallss)`).
 Release builds can't update a debug install (different signature): uninstall first.
+
+**Every push to GitHub ships a release** — people download from Releases → latest, so it must never lag `master`:
+1. Bump `versionCode` (+1) and `versionName` (patch for fixes, minor for features) in `app/build.gradle.kts`; commit.
+2. `./gradlew assembleRelease`; check it's signed with the release key
+   (`apksigner verify --print-certs`, SHA-256 `5f32cb04…fcd97`) — a different key breaks updates over older installs.
+3. `git push`, then `gh release create vX.Y.Z app/build/outputs/apk/release/app-release.apk#minimal-X.Y.Z.apk
+   --title "Minimal X.Y.Z" --notes …` (notes in Spanish: what's new since the last release, and that it installs on
+   top of the previous one without losing settings). Attach the APK as `minimal-X.Y.Z.apk`.
+4. `./gradlew installDebug` on the owner's phone so it runs the same code.
